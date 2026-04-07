@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Core.php
  *
@@ -34,16 +36,34 @@ use Com\Tecnick\Pdf\Font\Exception as FontException;
 class Core
 {
     /**
-     * @param string   $font Content of the input font file
-     * @param TFontData $fdt  Extracted font metrics
+     * @param string         $font     Content of the input font file
+     * @param TFontData      $fdt      Extracted font metrics
      *
-     * @throws FontException in case of error
+     * @throws FontException
      */
-    public function __construct(
-        protected string $font,
-        protected array $fdt
-    ) {
+    public function __construct(protected readonly string $font, protected array $fdt)
+    {
+        // Initialize fdt values
+        $this->fdt['AvgWidth'] = 0.0;
+        $this->fdt['Leading'] = 0;
+        $this->fdt['MissingWidth'] = 600;
+        $this->fdt['cbbox'] = [];
+        $this->fdt['cw'] = [];
+
         $this->process();
+    }
+
+    /**
+     * Process Core font
+     *
+     * @throws FontException
+     */
+    protected function process(): void
+    {
+        $this->extractMetrics();
+        $this->setFlags();
+        $this->setMissingValues();
+        $this->remapValues();
     }
 
     /**
@@ -58,18 +78,17 @@ class Core
 
     protected function setFlags(): void
     {
-        if (($this->fdt['FontName'] == 'Symbol') || ($this->fdt['FontName'] == 'ZapfDingbats')) {
-            $this->fdt['Flags'] |= 4;
-        } else {
-            $this->fdt['Flags'] |= 32;
-        }
+        $this->fdt['Flags'] |= match ($this->fdt['FontName']) {
+            'Symbol', 'ZapfDingbats' => 4,
+            default => 32,
+        };
 
         if ($this->fdt['IsFixedPitch']) {
-            $this->fdt['Flags'] = ((int) $this->fdt['Flags']) | 1;
+            $this->fdt['Flags'] |= 1;
         }
 
         if ((int) $this->fdt['ItalicAngle'] != 0) {
-            $this->fdt['Flags'] = ((int) $this->fdt['Flags']) | 64;
+            $this->fdt['Flags'] |= 64;
         }
     }
 
@@ -80,25 +99,18 @@ class Core
      */
     protected function setCharWidths(array $cwidths): void
     {
-        $this->fdt['MissingWidth'] = 600;
-        if (! empty($cwidths[32])) {
-            $this->fdt['MissingWidth'] = $cwidths[32];
-        }
+        $this->fdt['MissingWidth'] = $cwidths[32] ?: 600;
+        $this->fdt['MaxWidth'] = $this->fdt['MissingWidth'];
 
-        $this->fdt['MaxWidth'] = (int) $this->fdt['MissingWidth'];
-        $this->fdt['AvgWidth'] = 0;
-        $this->fdt['cw'] = [];
-        for ($cid = 0; $cid <= 255; ++$cid) {
+        for ($cid = 0; $cid <= 255; $cid++) {
             if (isset($cwidths[$cid])) {
-                if ($cwidths[$cid] > $this->fdt['MaxWidth']) {
-                    $this->fdt['MaxWidth'] = $cwidths[$cid];
-                }
-
-                $this->fdt['AvgWidth'] += $cwidths[$cid];
-                $this->fdt['cw'][$cid] = $cwidths[$cid];
+                $chrWidth = $cwidths[$cid];
+                $this->fdt['AvgWidth'] += $chrWidth;
             } else {
-                $this->fdt['cw'][$cid] = (int) $this->fdt['MissingWidth'];
+                $chrWidth = $this->fdt['MissingWidth'];
             }
+            $this->fdt['cw'][$cid] = $chrWidth;
+            $this->fdt['MaxWidth'] = \max($this->fdt['MaxWidth'], $chrWidth);
         }
 
         $this->fdt['AvgWidth'] = (int) \round($this->fdt['AvgWidth'] / \count($cwidths));
@@ -110,67 +122,50 @@ class Core
     protected function extractMetrics(): void
     {
         $cwd = [];
-        $this->fdt['cbbox'] = [];
         $lines = \explode("\n", \str_replace("\r", '', $this->font));
         // process each row
         foreach ($lines as $line) {
             $col = \explode(' ', \rtrim($line));
-            if (\count($col) > 1) {
-                $this->processMetricRow($col, $cwd);
-            }
+            $this->processMetricRow($col, $cwd);
         }
 
-        $this->fdt['Leading'] = 0;
         $this->setCharWidths($cwd);
     }
 
     /**
-     * Extract Metrics
+     * Process a row of the font metric
      *
      * @param array<int, string> $col Array containing row elements to process
-     * @param array<int, int>    $cwd Array contianing cid widths
-     *
-     * @SuppressWarnings("PHPMD.CyclomaticComplexity")
+     * @param array<int, int>    $cwd Array containing cid widths
      */
     protected function processMetricRow(array $col, array &$cwd): void
     {
-        switch ($col[0]) {
-            case 'IsFixedPitch':
-                $this->fdt['IsFixedPitch'] = ($col[1] == 'true');
-                break;
-            case 'FontBBox':
-                $this->fdt['FontBBox'] = [(int) $col[1], (int) $col[2], (int) $col[3], (int) $col[4]];
-                break;
-            case 'C':
-                $cid = (int) $col[1];
-                if ($cid >= 0) {
-                    $cwd[$cid] = (int) $col[4];
-                    if (! empty($col[14])) {
-                        $this->fdt['cbbox'][$cid] = [(int) $col[10], (int) $col[11], (int) $col[12], (int) $col[13]];
-                    }
-                }
+        if (!isset($col[1])) {
+            return;
+        }
 
-                break;
-            case 'FontName':
-            case 'FullName':
-            case 'FamilyName':
-            case 'Weight':
-            case 'CharacterSet':
-            case 'Version':
-            case 'EncodingScheme':
-                $this->fdt[$col[0]] = $col[1];
-                break;
-            case 'ItalicAngle':
-            case 'UnderlinePosition':
-            case 'UnderlineThickness':
-            case 'CapHeight':
-            case 'XHeight':
-            case 'Ascender':
-            case 'Descender':
-            case 'StdHW':
-            case 'StdVW':
-                $this->fdt[$col[0]] = (int) $col[1];
-                break;
+        $integerValueKeys = [
+            ...['ItalicAngle', 'UnderlinePosition', 'UnderlineThickness', 'CapHeight'],
+            ...['XHeight', 'Ascender', 'Descender', 'StdHW', 'StdVW'],
+        ];
+        $otherValueKeys = ['FontName', 'FullName', 'FamilyName', 'Weight', 'CharacterSet', 'Version', 'EncodingScheme'];
+
+        if ($col[0] == 'IsFixedPitch') {
+            $this->fdt['IsFixedPitch'] = $col[1] == 'true';
+        } elseif ($col[0] == 'FontBBox') {
+            $this->fdt['FontBBox'] = [(int) $col[1], (int) $col[2], (int) $col[3], (int) $col[4]];
+        } elseif ($col[0] == 'C') {
+            $cid = (int) $col[1];
+            if ($cid >= 0) {
+                $cwd[$cid] = (int) $col[4];
+                if (!empty($col[14])) {
+                    $this->fdt['cbbox'][$cid] = [(int) $col[10], (int) $col[11], (int) $col[12], (int) $col[13]];
+                }
+            }
+        } elseif (\in_array($col[0], $integerValueKeys)) {
+            $this->fdt[$col[0]] = (int) $col[1];
+        } elseif (\in_array($col[0], $otherValueKeys)) {
+            $this->fdt[$col[0]] = $col[1];
         }
     }
 
@@ -199,32 +194,14 @@ class Core
         $this->fdt['name'] = $name;
         $this->fdt['bbox'] = \implode(' ', $this->fdt['FontBBox']);
 
-        if (empty($this->fdt['XHeight'])) {
-            $this->fdt['XHeight'] = 0;
-        }
+        $this->fdt['XHeight'] ??= 0;
     }
 
     protected function setMissingValues(): void
     {
-        $this->fdt['Descender'] = $this->fdt['FontBBox'][1];
+        $this->fdt['Descent'] = $this->fdt['FontBBox'][1];
+        $this->fdt['Ascent'] = $this->fdt['FontBBox'][3];
 
-        $this->fdt['Ascender'] = $this->fdt['FontBBox'][3];
-
-        if (empty($this->fdt['CapHeight'])) {
-            $this->fdt['CapHeight'] = $this->fdt['Ascender'];
-        }
-    }
-
-    /**
-     * Process Core font
-     *
-     * @throws FontException
-     */
-    protected function process(): void
-    {
-        $this->extractMetrics();
-        $this->setFlags();
-        $this->setMissingValues();
-        $this->remapValues();
+        $this->fdt['CapHeight'] ??= $this->fdt['Ascender'];
     }
 }

@@ -1,8 +1,15 @@
 {
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/mreiden/tc-lib-file",
+      "only": ["tecnickcom/tc-lib-file"]
+    }
+  ],
   "name": "tecnickcom/tc-lib-pdf-font",
   "description": "PHP library containing PDF page formats and definitions",
   "type": "library",
-  "homepage": "http://www.tecnick.com",
+  "homepage": "https://tecnick.com/",
   "license": "LGPL-3.0-or-later",
   "keywords": [
     "tc-lib-pdf-font",
@@ -25,21 +32,23 @@
     "ext-json": "*",
     "ext-pcre": "*",
     "ext-zlib": "*",
-    "tecnickcom/tc-lib-file": "^2.2",
+    "tecnickcom/tc-lib-file": "dev-byte-bitwise as 2.3.99",
     "tecnickcom/tc-lib-unicode-data": "^2.0",
     "tecnickcom/tc-lib-pdf-encrypt": "^2.1"
   },
   "config": {
     "allow-plugins": {
       "dealerdirect/phpcodesniffer-composer-installer": true
-    }
+    },
+    "sort-packages": true
   },
   "require-dev": {
-    "pdepend/pdepend": "2.16.2",
-    "phpmd/phpmd": "2.15.0",
-    "phpunit/phpunit": "12.5.8 || 11.5.50 || 10.5.63",
-    "squizlabs/php_codesniffer": "4.0.1",
-    "phpcompatibility/php-compatibility": "^10.0.0@dev"
+    "pdepend/pdepend": "3.x-dev",
+    "phpcompatibility/php-compatibility": "^10.0.0@dev",
+    "phpmd/phpmd": "3.x-dev",
+    "phpstan/phpstan": "^2.1.46",
+    "phpunit/phpunit": "^13.1.0 || 12.5.14 || 11.5.55 || 10.5.63",
+    "squizlabs/php_codesniffer": "^4.0.1"
   },
   "autoload": {
     "psr-4": {

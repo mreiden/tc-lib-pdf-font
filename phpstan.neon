@@ -1,10 +1,19 @@
+includes:
+  - vendor/phpstan/phpstan/conf/bleedingEdge.neon
+
 parameters:
-  level: 6
+  level: max
+  # Paths relative to this file to analyze
   paths:
     - src
     - test
+
   excludePaths:
-    - vendor
+    # %rootDir% is the directory where the used phpstan binary or .phar file is installed (e.g. ./vendor/phpstan/phpstan/[phpstan,phpstan.phar]).
+    # Use %rootDir% to anchor the excluded vendor directory. Using 'vendor', './vendor', etc tends to exclude the entire project if it was
+    # installed under a 'vendor' ancestor directory.
+    - %rootDir%/../../../vendor/*
+
   ignoreErrors:
   reportUnmatchedIgnoredErrors: false
   treatPhpDocTypesAsCertain: false

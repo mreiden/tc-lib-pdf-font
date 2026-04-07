@@ -1,10 +1,25 @@
 <?xml version="1.0"?>
 <ruleset name="PHP-compatibility">
-    <description>Test code for compatibility with supported PHP versions</description>
-    <rule ref="PHPCompatibility"/>
-    <config name="testVersion" value="8.1-8.5"/>
-    <file>src</file>
-    <file>test</file>
-    <exclude-pattern>./vendor/*</exclude-pattern>
-    <arg value="ps"/>
+  <description>Test code for compatibility with supported PHP versions</description>
+  <rule ref="PHPCompatibility"/>
+
+  <!-- Show progress meter (-p) and phpcs error codes in messages (-s) -->
+  <arg value="ps"/>
+
+  <!-- Supported PHP Versions -->
+  <config name="testVersion" value="8.1-8.5"/>
+
+  <!-- Ignore non-auto-fixable errors on exit -->
+  <config name="ignore_non_auto_fixable_on_exit" value="1"/>
+
+  <!-- Directories and/or individual files to check -->
+  <file>./src</file>
+  <file>./test</file>
+
+  <!-- The exclude-pattern prevents phpcs runs when an ancestor directory is "vendor". -->
+  <!-- Only the <file> paths (.src and .test) above will be scanned anyway. -->
+  <!-- See https://github.com/squizlabs/PHP_CodeSniffer/issues/981 for phpcs issue -->
+  <!--
+  <exclude-pattern>./vendor/*</exclude-pattern>
+  -->
 </ruleset>

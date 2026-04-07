@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * OutUtil.php
  *
@@ -46,48 +48,19 @@ abstract class OutUtil
     {
         $dirobj = new Dir();
         // directories where to search for the font definition file
-        $dirs = \array_unique(
-            ['', $fontdir, (\defined('K_PATH_FONTS') ? K_PATH_FONTS : ''), $dirobj->findParentDir('fonts', __DIR__)]
-        );
+        $dirs = \array_unique([
+            '',
+            $fontdir,
+            \defined('K_PATH_FONTS') && \is_string(K_PATH_FONTS) ? K_PATH_FONTS : '',
+            $dirobj->findParentDir('fonts', __DIR__),
+        ]);
         foreach ($dirs as $dir) {
-            if (@\is_readable($dir . DIRECTORY_SEPARATOR . $file)) {
-                return $dir . DIRECTORY_SEPARATOR . $file;
+            if (@\is_readable("$dir/$file")) {
+                return "$dir/$file";
             }
         }
 
         throw new FontException('Unable to locate the file: ' . $file);
-    }
-
-    /**
-     * Outputs font widths
-     *
-     * @param array{
-     *        'cw':  array<int, int>,
-     *        'dw': int,
-     *        'subset': bool,
-     *        'subsetchars': array<int, bool>,
-     *    } $font      Font to process
-     * @param int    $cidoffset Offset for CID values
-     *
-     * @return string PDF command string for font widths
-     */
-    protected function getCharWidths(array $font, int $cidoffset = 0): string
-    {
-        \ksort($font['cw']);
-        $range = $this->getWidthRanges($font, $cidoffset);
-        // output data
-        $wdt = '';
-        foreach ($range as $kdx => $wds) {
-            if (\count(\array_count_values($wds)) == 1) {
-                // interval mode is more compact
-                $wdt .= ' ' . $kdx . ' ' . ($kdx + \count($wds) - 1) . ' ' . $wds[0];
-            } else {
-                // range mode
-                $wdt .= ' ' . $kdx . ' [ ' . \implode(' ', $wds) . ' ]';
-            }
-        }
-
-        return '/W [' . $wdt . ' ]';
     }
 
     /**
@@ -97,103 +70,179 @@ abstract class OutUtil
      *        'cw':  array<int, int>,
      *        'dw': int,
      *        'subset': bool,
-     *        'subsetchars': array<int, bool>,
+     *        'subsetchars': array<int, int>,
      *    } $font      Font to process
-     * @param int    $cidoffset Offset for CID values
+     * @param int    $cidoffset Offset to translate Character Codes into Character IDs
      *
-     * @return array<int, array<int, int>>
+     * @return string
+     *
+     * @SuppressWarnings("PHPMD.CyclomaticComplexity")
+     * @SuppressWarnings("PHPMD.NPathComplexity")
      */
-    protected function getWidthRanges(array $font, int $cidoffset = 0): array
+    /*
+    protected function getCharWidths(array $font, int $cidoffset = 0): string
     {
-        $range = [];
-        $rangeid = 0;
-        $prevcid = -2;
-        $prevwidth = -1;
-        $interval = false;
-        // for each character
-        foreach ($font['cw'] as $cid => $width) {
+        \ksort($font['cw']);
+
+        $loop = $font['cw'];
+        if ($font['subset']) {
+            $loop = $font['subsetchars'];
+            $cidoffset *= -1;
+        }
+        // Return early if there is nothing to do
+        if ($loop == []) {
+            return '';
+        }
+
+        $cidLast = \array_key_last($loop) - $cidoffset;
+        $strWidths = '';
+        $segment = [];
+        $buffer = [];
+        $cidPrevious = null;
+        $widthPrevious = null;
+
+        foreach (\array_keys($loop) as $cid) {
             $cid -= $cidoffset;
-            if ($font['subset'] && (! isset($font['subsetchars'][$cid]))) {
-                // ignore the unused characters (font subsetting)
+            // Flag used to finalize any queued characters
+            $lastLoop = $cid === $cidLast;
+
+            // Use default width if character width is not set
+            $width = $font['cw'][$cid] ?? null;
+            $missingWidth = $width === null;
+
+            // Optimization: Do not include characters having the default width
+            if ($width === $font['dw'] && (!$lastLoop || empty($segment))) {
                 continue;
             }
 
-            if ($width != $font['dw']) {
-                if ($cid === $prevcid + 1) {
-                    // consecutive CID
-                    if ($width == $prevwidth) {
-                        if ($width === $range[$rangeid][0]) {
-                            $range[$rangeid][] = $width;
-                        } else {
-                            \array_pop($range[$rangeid]);
-                            // new range
-                            $rangeid = $prevcid;
-                            $range[$rangeid] = [];
-                            $range[$rangeid][] = $prevwidth;
-                            $range[$rangeid][] = $width;
-                        }
+            // Add character width to segment
+            $prevOnNextLoop = $cidPrevious;
+            if (!$missingWidth) {
+                $segment[] = $width;
+                $prevOnNextLoop = $cid;
+            }
 
-                        $interval = true;
-                        $range[$rangeid][-1] = -1;
-                    } else {
-                        if ($interval) {
-                            // new range
-                            $rangeid = $cid;
-                            $range[$rangeid] = [];
-                            $range[$rangeid][] = $width;
-                        } else {
-                            $range[$rangeid][] = $width;
-                        }
+            // Initialize variables on the first loop iteration
+            if ($cidPrevious === null) {
+                // Initialize $buffer with the first $cid with a non-default width
+                $buffer = [$cid, $cid];
+                // Set $cidPrevious to force $cidGap=false
+                $cidPrevious = $cid - 1;
+                // Set $widthPrevious to force $sameWidth=true
+                $widthPrevious = $width;
+            }
+            //if ($cidPrevious === null) {
+            //    $buffer = [$cid, $cid]
+            //    //if (!$missingWidth) {
+            //    //    $segment[] = $width;
+            //    //}
+            //} else {
+            $cidGap = $cid !== $cidPrevious + 1;
+            $sameWidth = !$missingWidth && $width === $widthPrevious;
 
-                        $interval = false;
-                    }
-                } else {
-                    // new range
-                    $rangeid = $cid;
-                    $range[$rangeid] = [];
-                    $range[$rangeid][] = $width;
-                    $interval = false;
+            if ($cidGap || !$sameWidth || $lastLoop) {
+                if (!$sameWidth && $buffer[1] - $buffer[0] >= 2) {
+                    $strWidths .= " $buffer[0] $buffer[1] $widthPrevious";
+                } elseif (!empty($segment)) {
+                    $strWidths .= " $buffer[0][" . \implode(' ', $segment) . ']';
                 }
-
-                $prevcid = $cid;
-                $prevwidth = $width;
-            }
-        }
-
-        return $this->optimizeWidthRanges($range);
-    }
-
-    /**
-     * Optimize width ranges
-     *
-     * @param array<int, array<int, int>> $range Width Ranges
-     *
-     * @return array<int, array<int, int>>
-     */
-    protected function optimizeWidthRanges(array $range): array
-    {
-        $prevk = -1;
-        $nextk = -1;
-        $prevint = false;
-        foreach ($range as $kdx => $wds) {
-            $cws = \count($wds);
-            if (($kdx == $nextk) && (! $prevint) && ((! isset($wds[-1])) || ($cws < 4))) {
-                unset($range[$kdx][-1]);
-                $range[$prevk] = [...$range[$prevk], ...$range[$kdx]];
-                unset($range[$kdx]);
+                $buffer = [$cid, $cid];
+                $segment = $missingWidth ? [] : [$width];
             } else {
-                $prevk = $kdx;
+                $buffer[1]++;
             }
+            //}
 
-            $prevint = false;
-            $nextk = $kdx + $cws;
-            if (isset($wds[-1])) {
-                unset($range[$kdx][-1]);
-                $prevint = ($cws > 3);
-                --$nextk;
-            }
+            $cidPrevious = $prevOnNextLoop;
+            $widthPrevious = $width;
         }
 
-        return $range;
+        return $strWidths === '' ? '' : '/W [' . \trim($strWidths) . ']';
+    }
+    */
+
+    protected function getCharWidths(array $font, int $cidoffset = 0): string
+    {
+        \ksort($font['cw']);
+
+        if ($font['subset']) {
+            $loop = $font['subsetchars'];
+            $cidoffset *= -1;
+        } else {
+            $loop = $font['cw'];
+        }
+
+        // Return early if there is nothing to do
+        if (empty($loop)) {
+            return '';
+        }
+
+        $cidLast = \array_key_last($loop) - $cidoffset;
+        $strWidths = '';
+        $segment = [];
+        foreach (\array_keys($loop) as $cid) {
+            $cid -= $cidoffset;
+
+            // Use default width if character width is not set
+            $width = $font['cw'][$cid] ?? null;
+            $missingWidth = $width === null;
+
+            // Flag needed to finalize any queued characters
+            $lastLoop = $cid === $cidLast;
+
+            // Optimization: Do not include characters having the default width
+            if ($width === $font['dw'] && (!$lastLoop || empty($segment))) {
+                continue;
+            }
+
+            // Add width to different widths array
+            if (!$missingWidth) {
+                $segment[] = $width;
+            }
+
+            // Initialize these after finding the first cid to use
+            $cidPrevious ??= $cid - 1;
+            $widthPrevious ??= $width;
+            $buffer ??= [$cid, $cid];
+
+            $startNew = false;
+            $cidGap = $cid !== $cidPrevious + 1;
+            $sameWidth = !$missingWidth && $width === $widthPrevious;
+            if ($cidGap || !$sameWidth || $lastLoop) {
+                if (!$sameWidth && $buffer[1] - $buffer[0] >= 2) {
+                    // Complete the segment as a "same-width" range since it is more compact for 3+ same-width consecutive cids.
+                    $startNew = true;
+                    $strWidths .= ' ' . $buffer[0] . ' ' . $buffer[1] . ' ' . $widthPrevious;
+                } elseif (!empty($segment) && ($cidGap || $lastLoop || $missingWidth)) {
+                    // Complete the segment using an array of individual widths for consecutive cids.
+                    $startNew = true;
+                    $strWidths .= ' ' . $buffer[0] . '[' . implode(' ', $segment) . ']';
+                }
+            }
+
+            // Start a new segment when the previous segment is complete.
+            if ($startNew) {
+                $buffer = [$cid, $cid];
+                $segment = [];
+                if (!$missingWidth) {
+                    $segment[] = $width;
+                }
+            }
+
+            // Increase the ending cid if the width is the same.
+            if ($sameWidth && $cid === $buffer[1] + 1) {
+                $buffer[1]++;
+            }
+
+            // Update $cidPrevious if the current $cid has a width (and should thus be included in the widths array)
+            if (!$missingWidth) {
+                $cidPrevious = $cid;
+            }
+
+            // Update $widthPrevious to the width of the current $cid
+            $widthPrevious = $width;
+        }
+
+        return $strWidths === '' ? '' : '/W [' . $strWidths . ']';
     }
 }

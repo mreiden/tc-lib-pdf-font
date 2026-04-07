@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Font.php
  *
@@ -30,9 +32,9 @@ use Com\Tecnick\Pdf\Font\Exception as FontException;
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link      https://github.com/tecnickcom/tc-lib-pdf-font
  *
- * @phpstan-import-type TFontData from Load
+ * @phpstan-import-type TFontData from \Com\Tecnick\Pdf\Font\Load
  */
-class Font extends \Com\Tecnick\Pdf\Font\Load
+class Font extends Load
 {
     /**
      * Load an imported font
@@ -50,20 +52,13 @@ class Font extends \Com\Tecnick\Pdf\Font\Load
      *                         D: strikeout (linethrough)
      *                         O: overline
      * @param string $ifile    The font definition file (or empty for autodetect).
-     *                         By default, the name is built from the family and
-     *                         style, in lower case with no spaces.
-     * @param bool   $subset   If true embed only a subset of the font
-     *                         (stores only the information related to
-     *                         the used characters); If false embed
-     *                         full font; This option is valid only for
-     *                         TrueTypeUnicode fonts and is disabled
-     *                         for PDF/A. If you want to enable users
-     *                         to modify the document, set this
-     *                         parameter to false. If you subset the
-     *                         font, the person who receives your PDF
-     *                         would need to have your same font in
-     *                         order to make changes to your PDF. The
-     *                         file size of the PDF would also be
+     *                         By default, the name is built from the family and style, in lower case with no spaces.
+     * @param bool   $subset   If true embed only a subset of the font (stores only the information related to
+     *                         the used characters); If false embed full font; This option is valid only for
+     *                         TrueTypeUnicode fonts and is disabled for PDF/A. If you want to enable users
+     *                         to modify the document, set this parameter to false. If you subset the
+     *                         font, the person who receives your PDF would need to have your same font in
+     *                         order to make changes to your PDF. The file size of the PDF would also be
      *                         smaller because you are embedding only a subset.
      * @param bool   $unicode  True in Unicode mode, False otherwise.
      * @param bool   $pdfa     True in PDF/A mode, False otherwise.
@@ -78,7 +73,7 @@ class Font extends \Com\Tecnick\Pdf\Font\Load
         bool $subset = false,
         bool $unicode = true,
         bool $pdfa = false,
-        bool $compress = true
+        bool $compress = true,
     ) {
         if ($font === '') {
             throw new FontException('empty font family name');
@@ -88,13 +83,12 @@ class Font extends \Com\Tecnick\Pdf\Font\Load
             throw new FontException('Invalid font ifile: ' . $ifile);
         }
 
-        $this->data['ifile'] = $ifile;
-        $this->data['family'] = $font;
-        $this->data['unicode'] = $unicode;
-        $this->data['pdfa'] = $pdfa;
-        $this->data['compress'] = $compress;
-        $this->data['subset'] = $subset;
-        $this->data['subsetchars'] = \array_fill(0, 255, true);
+        $this->fdt['ifile'] = $ifile;
+        $this->fdt['family'] = $font;
+        $this->fdt['unicode'] = $unicode;
+        $this->fdt['pdfa'] = $pdfa;
+        $this->fdt['compress'] = $compress;
+        $this->fdt['subset'] = $subset;
 
         // generate the font key and set styles
         $this->setStyle($style);
@@ -105,17 +99,18 @@ class Font extends \Com\Tecnick\Pdf\Font\Load
      */
     public function getFontkey(): string
     {
-        return $this->data['key'];
+        return $this->fdt['key'];
     }
 
     /**
      * Get the font data
      *
+     * @phpstan-import-type TFontData from \Com\Tecnick\Pdf\Font\Load
      * @return TFontData
      */
     public function getFontData(): array
     {
-        return $this->data;
+        return $this->fdt;
     }
 
     /**
@@ -126,29 +121,29 @@ class Font extends \Com\Tecnick\Pdf\Font\Load
     protected function setStyle(string $style): void
     {
         $style = \strtoupper($style);
-        if (\str_ends_with($this->data['family'], 'I')) {
+        if (\str_ends_with($this->fdt['family'], 'I')) {
             $style .= 'I';
-            $this->data['family'] = \substr($this->data['family'], 0, -1);
+            $this->fdt['family'] = \substr($this->fdt['family'], 0, -1);
         }
 
-        if (\str_ends_with($this->data['family'], 'B')) {
+        if (\str_ends_with($this->fdt['family'], 'B')) {
             $style .= 'B';
-            $this->data['family'] = \substr($this->data['family'], 0, -1);
+            $this->fdt['family'] = \substr($this->fdt['family'], 0, -1);
         }
 
         // normalize family name
-        $this->data['family'] = \strtolower($this->data['family']);
-        if ((! $this->data['unicode']) && ($this->data['family'] == 'arial')) {
-            $this->data['family'] = 'helvetica';
+        $this->fdt['family'] = \strtolower($this->fdt['family']);
+        if (!$this->fdt['unicode'] && $this->fdt['family'] == 'arial') {
+            $this->fdt['family'] = 'helvetica';
         }
 
-        if (($this->data['family'] == 'symbol') || ($this->data['family'] == 'zapfdingbats')) {
+        if ($this->fdt['family'] == 'symbol' || $this->fdt['family'] == 'zapfdingbats') {
             $style = '';
         }
 
-        if ($this->data['pdfa'] && (isset(Core::FONT[$this->data['family']]))) {
+        if ($this->fdt['pdfa'] && isset(Core::FONT[$this->fdt['family']])) {
             // core fonts must be embedded in PDF/A
-            $this->data['family'] = 'pdfa' . $this->data['family'];
+            $this->fdt['family'] = 'pdfa' . $this->fdt['family'];
         }
 
         $this->setStyleMode($style);
@@ -161,33 +156,33 @@ class Font extends \Com\Tecnick\Pdf\Font\Load
      */
     protected function setStyleMode(string $style): void
     {
-        $suffix = '';
+        $this->fdt['style'] = '';
         if (\str_contains($style, 'B')) {
-            $this->data['mode']['bold'] = true;
-            $suffix .= 'B';
+            $this->fdt['mode']['bold'] = true;
+            $this->fdt['style'] .= 'B';
         }
 
         if (\str_contains($style, 'I')) {
-            $this->data['mode']['italic'] = true;
-            $suffix .= 'I';
+            $this->fdt['mode']['italic'] = true;
+            $this->fdt['style'] .= 'I';
         }
 
-        $this->data['style'] = (string) $suffix;
+        // Font key includes Bold and Italic suffixes but not any of the ones below
+        $this->fdt['key'] = $this->fdt['family'] . $this->fdt['style'];
+
         if (\str_contains($style, 'U')) {
-            $this->data['style'] .= 'U';
-            $this->data['mode']['underline'] = true;
+            $this->fdt['style'] .= 'U';
+            $this->fdt['mode']['underline'] = true;
         }
 
         if (\str_contains($style, 'D')) {
-            $this->data['style'] .= 'D';
-            $this->data['mode']['linethrough'] = true;
+            $this->fdt['style'] .= 'D';
+            $this->fdt['mode']['linethrough'] = true;
         }
 
         if (\str_contains($style, 'O')) {
-            $this->data['style'] .= 'O';
-            $this->data['mode']['overline'] = true;
+            $this->fdt['style'] .= 'O';
+            $this->fdt['mode']['overline'] = true;
         }
-
-        $this->data['key'] = $this->data['family'] . $suffix;
     }
 }

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * OutFont.php
  *
@@ -16,9 +18,11 @@
 
 namespace Com\Tecnick\Pdf\Font;
 
+use Com\Tecnick\File\Compression;
 use Com\Tecnick\Pdf\Encrypt\Encrypt;
 use Com\Tecnick\Pdf\Encrypt\Exception as EncException;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
+use Com\Tecnick\Pdf\Font\PdfObjects\OutFontObjs;
 use Com\Tecnick\Unicode\Data\Identity;
 
 /**
@@ -32,11 +36,13 @@ use Com\Tecnick\Unicode\Data\Identity;
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link      https://github.com/tecnickcom/tc-lib-pdf-font
  *
- * @phpstan-import-type TFontDataCidInfo from Load
- * @phpstan-import-type TFontDataDesc from Load
+ * @phpstan-import-type TFontDataCidInfo from \Com\Tecnick\Pdf\Font\Load
+ * @phpstan-import-type TFontDataDesc from \Com\Tecnick\Pdf\Font\Load
  */
-abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
+abstract class OutFont extends OutUtil
 {
+    private const COMPRESS_FILTER = ' /Filter/FlateDecode';
+
     /**
      * Current PDF object number
      */
@@ -46,6 +52,13 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
      * Encrypt object
      */
     protected Encrypt $enc;
+
+    /**
+     * Array mapping PDF object numbers to PDF object strings
+     *
+     * @var array<int, string>
+     */
+    protected array $pdfObjects = [];
 
     /**
      * Get the PDF output string for a CID-0 font.
@@ -61,7 +74,7 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
      *        'n': int,
      *        'name': string,
      *        'subset': bool,
-     *        'subsetchars': array<int, bool>,
+     *        'subsetchars': array<int, int>,
      *    } $font Font to process
      *
      * @return string
@@ -71,57 +84,56 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
     protected function getCid0(array $font): string
     {
         $cidoffset = 0;
-        if (! isset($font['cw'][1])) {
+        if (!isset($font['cw'][1])) {
             $cidoffset = 31;
         }
 
         $this->uniToCid($font, $cidoffset);
         $name = $font['name'];
         $longname = $name;
-        if (! empty($font['enc'])) {
+        if (!empty($font['enc'])) {
             $longname .= '-' . $font['enc'];
         }
 
-        // obj 1
-        $out = $font['n'] . ' 0 obj' . "\n"
-            . '<</Type /Font'
-            . ' /Subtype /Type0'
-            . ' /BaseFont /' . $longname
-            . ' /Name /F' . $font['i'];
-        if (! empty($font['enc'])) {
-            $out .= ' /Encoding /' . $font['enc'];
-        }
+        \assert($font['n'] === $this->pon);
+        $pdfRefType0 = $font['n'];
+        $pdfRefCIDFontType0 = ++$this->pon;
+        $pdfRefFontDescriptor = ++$this->pon;
 
-        $out .= ' /DescendantFonts [' . ($this->pon + 1) . ' 0 R]'
-            . ' >>' . "\n"
-            . 'endobj' . "\n";
+        $objSprintf = <<<'OUT'
+        %1$d 0 obj
+        <</Type/Font /Subtype/Type0 /BaseFont/%2$s /Name/F%3$d %4$s /DescendantFonts [%5$d 0 R] >>
+        endobj
+        %5$d 0 obj
+        <</Type/Font /Subtype/CIDFontType0 /BaseFont/%6$s /CIDSystemInfo %7$s /FontDescriptor %8$d
+        /DW %9$s %10$s >>
+        endobj
+        %8$d O obj
+        <</Type/FontDescriptor /FontName/%6$s %11$s >>
+        endobj
 
-        // obj 2
-        $out .= (++$this->pon) . ' 0 obj' . "\n"
-            . '<</Type /Font'
-            . ' /Subtype /CIDFontType0'
-            . ' /BaseFont /' . $name;
-        $cidinfo = '/Registry ' . $this->enc->escapeDataString($font['cidinfo']['Registry'], $this->pon)
-            . ' /Ordering ' . $this->enc->escapeDataString($font['cidinfo']['Ordering'], $this->pon)
-            . ' /Supplement ' . $font['cidinfo']['Supplement'];
-        $out .= ' /CIDSystemInfo <<' . $cidinfo . '>>'
-            . ' /FontDescriptor ' . ($this->pon + 1) . ' 0 R'
-            . ' /DW ' . $font['dw'] . "\n"
-            . $this->getCharWidths($font, $cidoffset)
-            . ' >>' . "\n"
-            . 'endobj' . "\n";
-
-        // obj 3
-        $out .= (++$this->pon) . ' 0 obj' . "\n"
-            . '<</Type /FontDescriptor /FontName /' . $name;
-        foreach ($font['desc'] as $key => $val) {
-            if ($key !== 'Style') { // @phpstan-ignore-line
-                $out .= $this->getKeyValOut($key, $val);
-            }
-        }
-
-        return $out . ('>>' . "\n"
-            . 'endobj' . "\n");
+        OUT;
+        return \vsprintf($objSprintf, [
+            $pdfRefType0,
+            $longname,
+            $font['i'],
+            empty($font['enc']) ? '' : "/Encoding/{$font['enc']}",
+            $pdfRefCIDFontType0,
+            $name,
+            \vsprintf('<< /Registry %s /Ordering %s /Supplement %d >>', [
+                $this->enc->escapeDataString($font['cidinfo']['Registry'], $pdfRefCIDFontType0),
+                $this->enc->escapeDataString($font['cidinfo']['Ordering'], $pdfRefCIDFontType0),
+                $font['cidinfo']['Supplement'],
+            ]),
+            $pdfRefFontDescriptor,
+            $font['dw'],
+            $this->getCharWidths($font, $cidoffset),
+            \array_reduce(
+                \array_keys($font['desc']),
+                fn(string $str, $key) => $str . $this->getKeyValOut($key, $font['desc'][$key]),
+                '',
+            ),
+        ]);
     }
 
     /**
@@ -137,9 +149,9 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
      *        'n': int,
      *        'name': string,
      *        'subset': bool,
-     *        'subsetchars': array<int, bool>,
+     *        'subsetchars': array<int, int>,
      *    } $font Font to process
-     * @param int    $cidoffset Offset for CID values
+     * @param int $cidoffset Offset for CID values
      */
     protected function uniToCid(array &$font, int $cidoffset): void
     {
@@ -148,13 +160,33 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
         $chw = [];
         foreach ($font['cw'] as $uni => $width) {
             if (isset($uni2cid[$uni])) {
-                $chw[($uni2cid[$uni] + $cidoffset)] = $width;
+                $chw[$uni2cid[$uni] + $cidoffset] = $width;
             } elseif ($uni < 256) {
                 $chw[$uni] = $width;
             } // else unknown character
         }
 
         $font['cw'] = \array_merge($font['cw'], $chw);
+    }
+
+    private function pdfNameOrId(string|int $nameOrId, bool $isObjInsteadOfRef = false): string
+    {
+        return !\is_int($nameOrId)
+            ? '/' . $this->enc->encodeNameObject($nameOrId)
+            : ($isObjInsteadOfRef
+                ? "$nameOrId 0 obj"
+                : " $nameOrId 0 R");
+    }
+
+    private function compressFilter(string &$data, bool $condition = true): string
+    {
+        if (!$condition) {
+            return '';
+        }
+
+        $data = Compression::compress($data);
+
+        return self::COMPRESS_FILTER;
     }
 
     /**
@@ -175,132 +207,109 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
      *        'n': int,
      *        'name': string,
      *        'subset': bool,
-     *        'subsetchars': array<int, bool>,
+     *        'subsetchars': array<int, int>,
      *    } $font Font to process
      *
      * @return string
      *
      * @throws EncException
      * @throws FontException
-     *
-     * @SuppressWarnings("PHPMD.ExcessiveMethodLength")
-     * @SuppressWarnings("PHPMD.CyclomaticComplexity")
-     * @SuppressWarnings("PHPMD.NPathComplexity")
      */
     protected function getTrueTypeUnicode(array $font): string
     {
-        $fontname = '';
+        $pdfRefDescendantFont = ++$this->pon;
+        $pdfRefCIDFontType2 = $pdfRefDescendantFont;
+        $pdfRefFontDescriptor = ++$this->pon;
+
+        $CIDtoGIDMap = '';
+        $fontname = $font['name'];
         if ($font['subset']) {
+            $pdfRefFontEncoding = 'Identity-H';
+            $pdfRefCIDToGIDMap = 'Identity';
+            $CIDtoGIDMap = "/CIDToGIDMap/$pdfRefCIDToGIDMap";
+
+            // ToUnicode PDF CMap: Custom object for subset
+            $pdfRefToUnicode = ++$this->pon;
+            $cidhmap = $font['toUnicodeCMap'] ?? Identity::CIDHMAP;
+            $filterCompress = $this->compressFilter($cidhmap, $font['compress']);
+            $stream = $this->enc->encryptString($cidhmap, $pdfRefToUnicode);
+            $this->pdfObjects[$pdfRefToUnicode] = \vsprintf(OutFontObjs::TO_UNICODE, [
+                $this->pdfNameOrId($pdfRefToUnicode, true),
+                \strlen($stream),
+                $filterCompress,
+                $stream,
+            ]);
+
             // change name for font subsetting
             $subtag = \sprintf('%06u', $font['i']);
             $subtag = \strtr($subtag, '0123456789', 'ABCDEFGHIJ');
-            $fontname .= $subtag . '+';
-        }
+            $fontname = $subtag . '+' . $fontname;
+        } else {
+            $pdfRefFontEncoding = ++$this->pon;
+            // ToUnicode map: Identity-H for non-subset
+            $pdfRefToUnicode = 'Identity-H';
 
-        $fontname .= $font['name'];
-
-        // Type0 Font
-        // A composite font composed of other fonts, organized hierarchically
-
-        // obj 1
-        $out = $font['n'] . ' 0 obj' . "\n"
-            . '<< /Type /Font'
-            . ' /Subtype /Type0'
-            . ' /BaseFont /' . $fontname
-            . ' /Name /F' . $font['i']
-            . ' /Encoding /' . $font['enc']
-            . ' /ToUnicode ' . ($this->pon + 1) . ' 0 R'
-            . ' /DescendantFonts [' . ($this->pon + 2) . ' 0 R]'
-            . ' >>' . "\n"
-            . 'endobj' . "\n";
-
-        // ToUnicode Object
-        $out .= (++$this->pon) . ' 0 obj' . "\n"
-            . '<<';
-        $cidhmap = Identity::CIDHMAP;
-        if ($font['compress']) {
-            $out .= ' /Filter /FlateDecode';
-            $cidhmap = \gzcompress($cidhmap);
-            if ($cidhmap === false) {
-                throw new \RuntimeException('Unable to compress CIDHMAP');
+            if (!empty($font['ctg'])) {
+                // Embed CIDToGIDMap: A specification of the mapping from CIDs to glyph indices
+                $pdfRefCIDToGIDMap = ++$this->pon;
+                $CIDtoGIDMap = "/CIDToGIDMap $pdfRefCIDToGIDMap 0 R";
+                // search and get CTG font file to embed
+                $fontfile = $this->getFontFullPath($font['dir'], \strtolower($font['ctg']));
+                $content = \file_get_contents($fontfile);
+                if ($content === false) {
+                    throw new FontException('Unable to read font file: ' . $fontfile);
+                }
+                $stream = $this->enc->encryptString($content, $this->pon);
+                $this->pdfObjects[$pdfRefCIDToGIDMap] = \vsprintf(OutFontObjs::CID_TO_GID_MAP, [
+                    $pdfRefCIDToGIDMap,
+                    \strlen($stream),
+                    // stream is compressed if $fontfile ends with '.z'
+                    \str_ends_with($fontfile, '.z') ? self::COMPRESS_FILTER : '',
+                    $stream,
+                ]);
             }
         }
 
-        $stream = $this->enc->encryptString($cidhmap, $this->pon); // ToUnicode map for Identity-H
-        $out .= ' /Length ' . \strlen($stream)
-            . ' >>'
-            . ' stream' . "\n"
-            . $stream . "\n"
-            . 'endstream' . "\n"
-            . 'endobj' . "\n";
+        // Type0 Font: A composite font composed of other fonts, organized hierarchically
+        $this->pdfObjects[$font['n']] = \vsprintf(OutFontObjs::TYPE0, [
+            $this->pdfNameOrId($font['n'], true),
+            $fontname,
+            'F' . $font['i'],
+            $this->pdfNameOrId($pdfRefFontEncoding),
+            '/ToUnicode' . $this->pdfNameOrId($pdfRefToUnicode),
+            $this->pdfNameOrId($pdfRefDescendantFont),
+        ]);
 
-        // CIDFontType2
-        // A CIDFont whose glyph descriptions are based on TrueType font technology
-        $out .= (++$this->pon) . ' 0 obj' . "\n"
-            . '<< /Type /Font'
-            . ' /Subtype /CIDFontType2'
-            . ' /BaseFont /' . $fontname;
-        // A dictionary containing entries that define the character collection of the CIDFont.
-        $cidinfo = '/Registry ' . $this->enc->escapeDataString($font['cidinfo']['Registry'], $this->pon)
-            . ' /Ordering ' . $this->enc->escapeDataString($font['cidinfo']['Ordering'], $this->pon)
-            . ' /Supplement ' . $font['cidinfo']['Supplement'];
-        $out .= ' /CIDSystemInfo << ' . $cidinfo . ' >>'
-            . ' /FontDescriptor ' . ($this->pon + 1) . ' 0 R'
-            . ' /DW ' . $font['dw'] . "\n"
-            . $this->getCharWidths($font, 0);
-        if (! empty($font['ctg'])) {
-            $out .= "\n" . '/CIDToGIDMap ' . ($this->pon + 2) . ' 0 R';
-        }
+        // CIDFontType2: A CIDFont whose glyph descriptions are based on TrueType font technology
+        $this->pdfObjects[$pdfRefCIDFontType2] = \vsprintf(OutFontObjs::CID_FONT_TYPE2, [
+            $this->pdfNameOrId($pdfRefCIDFontType2, true),
+            $fontname,
+            // CIDSystemInfo
+            \vsprintf('<< /Registry %s /Ordering %s /Supplement %d >>', [
+                $this->enc->escapeDataString($font['cidinfo']['Registry'], $pdfRefCIDFontType2),
+                $this->enc->escapeDataString($font['cidinfo']['Ordering'], $pdfRefCIDFontType2),
+                $font['cidinfo']['Supplement'],
+            ]),
+            $CIDtoGIDMap,
+            $this->pdfNameOrId($pdfRefFontDescriptor),
+            $font['dw'],
+            $this->getCharWidths($font, 0),
+        ]);
 
-        $out .= ' >>' . "\n"
-            . 'endobj' . "\n";
+        // Font descriptor: A font descriptor describing the CIDFont default metrics other than its glyph widths
+        $this->pdfObjects[$pdfRefFontDescriptor] = \vsprintf(OutFontObjs::FONT_DESCRIPTOR, [
+            $pdfRefFontDescriptor,
+            $fontname,
+            \array_reduce(
+                \array_keys($font['desc']),
+                fn(string $str, $key) => $str . $this->getKeyValOut($key, $font['desc'][$key]),
+                '',
+            ),
+            $this->pdfNameOrId($font['file_n']),
+        ]);
 
-        // Font descriptor
-        // A font descriptor describing the CIDFont default metrics other than its glyph widths
-        $out .= (++$this->pon) . ' 0 obj' . "\n"
-            . '<< /Type /FontDescriptor'
-            . ' /FontName /' . $fontname;
-        foreach ($font['desc'] as $key => $val) {
-            $out .= $this->getKeyValOut($key, $val);
-        }
-
-        if (! empty($font['file_n'])) {
-            // A stream containing a TrueType font
-            $out .= ' /FontFile2 ' . $font['file_n'] . ' 0 R';
-        }
-
-        $out .= ' >>' . "\n"
-            . 'endobj' . "\n";
-
-        if (! empty($font['ctg'])) {
-            $out .= (++$this->pon) . ' 0 obj' . "\n";
-            // Embed CIDToGIDMap
-            // A specification of the mapping from CIDs to glyph indices
-            // search and get CTG font file to embed
-            $ctgfile = \strtolower($font['ctg']);
-            // search and get ctg font file to embed
-            $fontfile = $this->getFontFullPath($font['dir'], $ctgfile);
-            $content = \file_get_contents($fontfile);
-            if ($content === false) {
-                throw new FontException('Unable to read font file: ' . $fontfile);
-            }
-
-            $stream = $this->enc->encryptString($content, $this->pon);
-            $out .= '<< /Length ' . \strlen($stream) . '';
-            if (\str_ends_with($fontfile, '.z')) { // check file extension
-                // Decompresses data encoded using the public-domain
-                // zlib/deflate compression method, reproducing the
-                // original text or binary data
-                $out .= ' /Filter /FlateDecode';
-            }
-
-            $out .= ' >> stream' . "\n"
-                . $stream . "\n"
-                . 'endstream' . "\n"
-                . 'endobj' . "\n";
-        }
-
-        return $out;
+        \ksort($this->pdfObjects);
+        return implode("\n", $this->pdfObjects) . "\n";
     }
 
     /**
@@ -313,21 +322,17 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
      *        'name': string,
      *    } $font Font to process
      *
-     * return string
+     * @return string
      */
     protected function getCore(array $font): string
     {
-        $out = $font['n'] . ' 0 obj' . "\n"
-            . '<</Type /Font'
-            . ' /Subtype /Type1'
-            . ' /BaseFont /' . $font['name']
-            . ' /Name /F' . $font['i'];
-        if (($font['family'] != 'symbol') && ($font['family'] != 'zapfdingbats')) {
-            $out .= ' /Encoding /WinAnsiEncoding';
-        }
+        $encoding = \in_array($font['family'], ['symbol', 'zapfdingbats']) ? '' : '/Encoding /WinAnsiEncoding';
+        return <<<OUT
+        {$font['n']} 0 obj
+        << /Type/Font /Subtype/Type1 /BaseFont/{$font['name']} /Name/F{$font['i']} $encoding >>
+        endobj
 
-        return $out . (' >>' . "\n"
-            . 'endobj' . "\n");
+        OUT;
     }
 
     /**
@@ -347,71 +352,61 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
      *        'type': string,
      *    } $font Font to process
      *
-     * return string
+     * @return string
      */
     protected function getTrueType(array $font): string
     {
-        // obj 1
-        $out = $font['n'] . ' 0 obj' . "\n"
-            . '<</Type /Font'
-            . ' /Subtype /' . $font['type']
-            . ' /BaseFont /' . $font['name']
-            . ' /Name /F' . $font['i']
-            . ' /FirstChar 32 /LastChar 255'
-            . ' /Widths ' . ($this->pon + 1) . ' 0 R'
-            . ' /FontDescriptor ' . ($this->pon + 2) . ' 0 R';
-        if (! empty($font['enc'])) {
-            if (isset($font['diff_n']) && $font['diff_n'] !== 0) {
-                $out .= ' /Encoding ' . $font['diff_n'] . ' 0 R';
-            } else {
-                $out .= ' /Encoding /WinAnsiEncoding';
-            }
-        }
+        $pdfRefFontDescriptor = ++$this->pon;
 
-        $out .= ' >>' . "\n"
-            . 'endobj' . "\n";
+        $pdfObjects = [];
+        $pdfObjects[$font['n']] = \vsprintf(OutFontObjs::TRUE_TYPE, [
+            $font['n'],
+            $font['type'],
+            $font['name'],
+            $font['i'],
+            \array_reduce(
+                \range(32, 255),
+                fn(string $combined, int $idx): string => "$combined " . ($font['cw'][$idx] ?? $font['dw']),
+                '',
+            ),
+            empty($font['enc'])
+                ? ''
+                : (empty($font['diff_n'])
+                    ? '/Encoding/WinAnsiEncoding'
+                    : "/Encoding {$font['diff_n']} O R"),
+        ]);
 
-        // obj 2 - Widths
-        $out .= (++$this->pon) . ' 0 obj' . "\n"
-            . '[';
-        for ($idx = 32; $idx < 256; ++$idx) {
-            if (isset($font['cw'][$idx])) {
-                $out .= $font['cw'][$idx] . ' ';
-            } else {
-                $out .= $font['dw'] . ' ';
-            }
-        }
+        // Font descriptor: A font descriptor describing the default metrics other than its glyph widths
+        $pdfObjects[$pdfRefFontDescriptor] = \vsprintf(OutFontObjs::TRUE_TYPE_FONT_DESCRIPTOR, [
+            $pdfRefFontDescriptor,
+            $font['name'],
+            \array_reduce(
+                \array_keys($font['desc']),
+                fn(string $str, $key) => $str . $this->getKeyValOut($key, $font['desc'][$key]),
+                '',
+            ),
+            empty($font['file'])
+                ? ''
+                : \sprintf(' /FontFile%s %d 0 R', $font['type'] == 'Type1' ? '' : '2', $font['file_n']),
+        ]);
 
-        $out .= ']' . "\n"
-            . 'endobj' . "\n";
-
-        // obj 3 - Descriptor
-        $out .= (++$this->pon) . ' 0 obj' . "\n"
-            . '<</Type /FontDescriptor /FontName /' . $font['name'];
-        foreach ($font['desc'] as $fdk => $fdv) {
-            $out .= $this->getKeyValOut($fdk, $fdv);
-        }
-
-        if (! empty($font['file'])) {
-            $out .= ' /FontFile' . ($font['type'] == 'Type1' ? '' : '2') . ' ' . $font['file_n'] . ' 0 R';
-        }
-
-        return $out . ('>>' . "\n"
-            . 'endobj' . "\n");
+        return \implode("\n", $pdfObjects) . "\n";
     }
 
     /**
      * Returns the formatted key/value PDF string
      *
-     * @param string $key Key name
-     * @param mixed  $val Value
+     * @param string           $key Key name
+     * @param string|int|float $val Value
+     *
+     * @return string
      */
-    protected function getKeyValOut(string $key, mixed $val): string
+    protected function getKeyValOut(string $key, string|int|float $val): string
     {
         if (\is_float($val)) {
             $val = \sprintf('%F', $val);
         }
 
-        return ' /' . $key . ' ' . $val . '';
+        return " /$key $val";
     }
 }

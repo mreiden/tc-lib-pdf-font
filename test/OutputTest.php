@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * OutputTest.php
  *
@@ -16,6 +18,14 @@
 
 namespace Test;
 
+use Com\Tecnick\Pdf\Encrypt\Encrypt;
+use Com\Tecnick\Pdf\Font\Exception as FontException;
+use Com\Tecnick\Pdf\Font\Import;
+use Com\Tecnick\Pdf\Font\Output;
+use Com\Tecnick\Pdf\Font\Stack;
+use Com\Tecnick\Pdf\Font\Trait\FontDataTrait;
+use PHPUnit\Framework\Attributes\Test;
+
 /**
  * Output Test
  *
@@ -27,55 +37,59 @@ namespace Test;
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link      https://github.com/tecnickcom/tc-lib-pdf-font
  *
- * @SuppressWarnings("PHPMD.LongVariable")
+ * @phpstan-import-type TFontData from \Com\Tecnick\Pdf\Font\Load
  */
 class OutputTest extends TestUtil
 {
+    use FontDataTrait;
+
+    #[Test]
     public function testOutput(): void
     {
-        $this->setupTest();
         $indir = \dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/';
 
         $objnum = 1;
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+        $stack = new Stack(1);
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'pdfa/pfb/PDFASymbol.pfb', '', 'Type1', 'symbol');
+        new Import($indir . 'pdfa/pfb/PDFASymbol.pfb', type: 'Type1', encoding: 'symbol');
         $stack->add($objnum, 'pdfasymbol');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'core/Helvetica.afm');
+        new Import($indir . 'core/Helvetica.afm');
         $stack->add($objnum, 'helvetica');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'core/Helvetica-Bold.afm');
+        new Import($indir . 'core/Helvetica-Bold.afm');
         $stack->add($objnum, 'helvetica', 'B');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'core/Helvetica-BoldOblique.afm');
+        new Import($indir . 'core/Helvetica-BoldOblique.afm');
         $stack->add($objnum, 'helveticaBI');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'core/Helvetica-Oblique.afm');
+        new Import($indir . 'core/Helvetica-Oblique.afm');
         $stack->add($objnum, 'helvetica', 'I');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSans.ttf');
+        new Import($indir . 'freefont/FreeSans.ttf');
         $stack->add($objnum, 'freesans', '');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSansBold.ttf');
+        new Import($indir . 'freefont/FreeSansBold.ttf');
         $stack->add($objnum, 'freesans', 'B');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSansOblique.ttf');
+        new Import($indir . 'freefont/FreeSansOblique.ttf');
         $stack->add($objnum, 'freesans', 'I');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSansBoldOblique.ttf');
-        $stack->add($objnum, 'freesans', 'BIUDO', '', true);
+        new Import($indir . 'freefont/FreeSansBoldOblique.ttf');
+        $stack->add($objnum, 'freesans', style: 'BIUDO', subset: true);
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'cid0/cid0jp.ttf', '', 'CID0JP');
+        new Import($indir . 'cid0/cid0jp.ttf', type: 'CID0JP');
         $stack->add($objnum, 'cid0jp');
 
         $fonts = $stack->getFonts();
         $this->assertCount(10, $fonts);
 
-        $encrypt = new \Com\Tecnick\Pdf\Encrypt\Encrypt();
-        $output = new \Com\Tecnick\Pdf\Font\Output($fonts, $objnum, $encrypt);
+        $encrypt = new Encrypt();
+        $output = new Output($fonts, $objnum, $encrypt);
 
-        $this->assertEquals(37, $output->getObjectNumber());
+        //$this->assertEquals(37, $output->getObjectNumber());
+        //$this->assertEquals(36, $output->getObjectNumber());
+        $this->assertEquals(35, $output->getObjectNumber());
 
         $this->assertNotEmpty($output->getFontsBlock());
 
@@ -87,5 +101,53 @@ class OutputTest extends TestUtil
         }
 
         $this->assertNotEmpty($output->getOutFontDictByKeys($keys));
+    }
+
+    #[Test]
+    public function testOutputNoCharWidths(): void
+    {
+        $indir = \dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/';
+
+        new Import($indir . 'freefont/FreeSans.ttf');
+        $jsonPath = $this->getFontPath() . 'freesans.json';
+        if (!\file_exists($jsonPath)) {
+            throw new \Exception('json file not found');
+        }
+        $json = \file_get_contents($jsonPath);
+        if (empty($json)) {
+            throw new \Exception('json file empty');
+        }
+        $json = \json_decode($json, true);
+
+        // Set an empty character widths array
+        /** @var TFontData $json */
+        $json['cw'] = [];
+        \file_put_contents($jsonPath, \json_encode($json));
+
+        $objnum = 1;
+        $stack = new Stack(1);
+        $stack->add($objnum, 'freesans', subset: false);
+
+        $objnum++;
+        $encrypt = new Encrypt();
+        $output = new Output($stack->getFonts(), $objnum, $encrypt);
+
+        $this->assertNotEmpty($output->getFontsBlock());
+    }
+
+    #[Test]
+    public function testOutputMissingFontFile(): void
+    {
+        $testFont = \array_merge($this->fdt, [
+            'dir' => __DIR__,
+            'file' => \sha1(\random_bytes(1024)) . '.ttf',
+            'subsetchars' => [],
+        ]);
+
+        $objnum = 1;
+        $encrypt = new Encrypt();
+
+        $this->expectException(FontException::class);
+        new Output(['NotReal' => $testFont], $objnum, $encrypt);
     }
 }

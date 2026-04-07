@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Load.php
  *
@@ -18,6 +20,8 @@ namespace Com\Tecnick\Pdf\Font;
 
 use Com\Tecnick\File\Dir;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
+use Com\Tecnick\Pdf\Font\Enum\FontTypes;
+use Com\Tecnick\Pdf\Font\Trait\FontDataTrait;
 
 /**
  * Com\Tecnick\Pdf\Font\Load
@@ -30,274 +34,173 @@ use Com\Tecnick\Pdf\Font\Exception as FontException;
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link      https://github.com/tecnickcom/tc-lib-pdf-font
  *
+ *
+ * @phpstan-type TFontDataCidInfoWithEncoding array{
+ *     enc: string,
+ *     Ordering: string,
+ *     Registry: string,
+ *     Supplement: int,
+ *     uni2cid: array<int, int>,
+ * }
+ *
  * @phpstan-type TFontDataCidInfo array{
- *            'Ordering': string,
- *            'Registry': string,
- *            'Supplement': int,
- *            'uni2cid': array<int, int>,
- *        }
+ *     Ordering: string,
+ *     Registry: string,
+ *     Supplement: int,
+ *     uni2cid: array<int, int>,
+ * }
  *
  * @phpstan-type TFontDataDesc array{
- *            'Ascent': int,
- *            'AvgWidth': int,
- *            'CapHeight': int,
- *            'Descent': int,
- *            'Flags': int,
- *            'FontBBox': string,
- *            'ItalicAngle': int,
- *            'Leading': int,
- *            'MaxWidth': int,
- *            'MissingWidth': int,
- *            'StemH': int,
- *            'StemV': int,
- *            'XHeight': int,
- *        }
+ *     Ascent: int,
+ *     AvgWidth: int,
+ *     CapHeight: int,
+ *     Descent: int,
+ *     Flags: int,
+ *     FontBBox: string,
+ *     ItalicAngle: int,
+ *     Leading: int,
+ *     MaxWidth: int,
+ *     MissingWidth: int,
+ *     StemH: int,
+ *     StemV: int,
+ *     XHeight: int,
+ * }
  *
  * @phpstan-type TFontDataEncTable array{
- *            'encodingID': int,
- *            'offset': int,
- *            'platformID': int,
- *        }
+ *     encodingId: int,
+ *     offset: int,
+ *     platformId: int,
+ * }
  *
  * @phpstan-type TFontDataMode array{
- *            'bold': bool,
- *            'italic': bool,
- *            'linethrough': bool,
- *            'overline': bool,
- *            'underline': bool,
- *        }
+ *     bold: bool,
+ *     italic: bool,
+ *     linethrough: bool,
+ *     overline: bool,
+ *     underline: bool,
+ * }
  *
  * @phpstan-type TFontDataTableItem array{
- *            'checkSum': int,
- *            'data': string,
- *            'length': int,
- *            'offset': int,
- *        }
+ *     checkSum: int,
+ *     data: string,
+ *     length: int,
+ *     offset: int,
+ *     length_nul_padding: int,
+ * }
+ *
+ * @phpstan-type TFontDataTableSubset array{
+ *     hmtx: array{
+ *         hMetrics: list<array<int,int>>,
+ *         lsbOnly: list<int>,
+ *     },
+ *     name: array{
+ *         nameIds: array<int, string>,
+ *         platformId?: int,
+ *         encodingId?: int,
+ *         languageId?: int,
+ *     },
+ * }
  *
  * @phpstan-type TFontData array{
- *        'Ascender': int,
- *        'Ascent': int,
- *        'AvgWidth': float,
- *        'CapHeight': int,
- *        'CharacterSet': string,
- *        'Descender': int,
- *        'Descent': int,
- *        'EncodingScheme': string,
- *        'FamilyName': string,
- *        'Flags': int,
- *        'FontBBox': array<int>,
- *        'FontName': string,
- *        'FullName': string,
- *        'IsFixedPitch': bool,
- *        'ItalicAngle': int,
- *        'Leading': int,
- *        'MaxWidth': int,
- *        'MissingWidth': int,
- *        'StdHW': int,
- *        'StdVW': int,
- *        'StemH': int,
- *        'StemV': int,
- *        'UnderlinePosition': int,
- *        'UnderlineThickness': int,
- *        'Version': string,
- *        'Weight': string,
- *        'XHeight': int,
- *        'bbox': string,
- *        'cbbox': array<int, array<int, int>>,
- *        'cidinfo': TFontDataCidInfo,
- *        'compress': bool,
- *        'ctg': string,
- *        'ctgdata': array<int, int>,
- *        'cw':  array<int, int>,
- *        'datafile': string,
- *        'desc': TFontDataDesc,
- *        'diff': string,
- *        'diff_n': int,
- *        'dir': string,
- *        'dw': int,
- *        'enc': string,
- *        'enc_map': array<int, string>,
- *        'encodingTables': array<int, TFontDataEncTable>,
- *        'encoding_id': int,
- *        'encrypted': string,
- *        'fakestyle': bool,
- *        'family': string,
- *        'file': string,
- *        'file_n': int,
- *        'file_name': string,
- *        'i': int,
- *        'ifile': string,
- *        'indexToLoc': array<int, int>,
- *        'input_file': string,
- *        'isUnicode': bool,
- *        'italicAngle': float,
- *        'key': string,
- *        'lenIV': int,
- *        'length1': int,
- *        'length2': int,
- *        'linked': bool,
- *        'mode': TFontDataMode,
- *        'n': int,
- *        'name': string,
- *        'numGlyphs': int,
- *        'numHMetrics': int,
- *        'originalsize': int,
- *        'pdfa': bool,
- *        'platform_id': int,
- *        'settype': string,
- *        'short_offset': bool,
- *        'size1': int,
- *        'size2': int,
- *        'style': string,
- *        'subset': bool,
- *        'subsetchars': array<int, bool>,
- *        'table': array<string, TFontDataTableItem>,
- *        'tot_num_glyphs': int,
- *        'type': string,
- *        'underlinePosition': int,
- *        'underlineThickness': int,
- *        'unicode': bool,
- *        'unitsPerEm': int,
- *        'up': int,
- *        'urk': float,
- *        'ut': int,
- *        'weight': string,
- *    }
+ *     Ascender: int,
+ *     Ascent: int,
+ *     AvgWidth: float,
+ *     CapHeight: int,
+ *     CharacterSet: string,
+ *     Descender: int,
+ *     Descent: int,
+ *     EncodingScheme: string,
+ *     FamilyName: string,
+ *     Flags: int,
+ *     FontBBox: array<int>,
+ *     FontName: string,
+ *     FullName: string,
+ *     IsFixedPitch: bool,
+ *     ItalicAngle: int,
+ *     Leading: int,
+ *     MaxWidth: int,
+ *     MissingWidth: int,
+ *     StdHW: int,
+ *     StdVW: int,
+ *     StemH: int,
+ *     StemV: int,
+ *     UnderlinePosition: int,
+ *     UnderlineThickness: int,
+ *     Version: string,
+ *     Weight: string,
+ *     XHeight: int,
+ *     bbox: string,
+ *     cbbox: array<int, array<int, int>>,
+ *     cidinfo: TFontDataCidInfo,
+ *     compress: bool,
+ *     ctg: string,
+ *     ctgdata: array<int, int>,
+ *     cw:  array<int, int>,
+ *     datafile: string,
+ *     desc: TFontDataDesc,
+ *     diff: string,
+ *     diff_n: int,
+ *     dir: string,
+ *     dw: int,
+ *     enc: string,
+ *     enc_map: array<int, string>,
+ *     encodingTables: list<TFontDataEncTable>,
+ *     encoding_id: int,
+ *     encrypted: string,
+ *     fakestyle: bool,
+ *     family: string,
+ *     file: string,
+ *     file_n: int,
+ *     file_name: string,
+ *     i: int,
+ *     ifile: string,
+ *     indexToLoc: array<int, int>,
+ *     input_file: string,
+ *     isUnicode: bool,
+ *     italicAngle: float,
+ *     key: string,
+ *     lenIV: int,
+ *     length1: int,
+ *     length2: int,
+ *     linked: bool,
+ *     mode: TFontDataMode,
+ *     n: int,
+ *     name: string,
+ *     numGlyphs: int,
+ *     numHMetrics: int,
+ *     originalsize: int,
+ *     pdfa: bool,
+ *     platform_id: int,
+ *     postscriptGlyphNames: list<int|string>,
+ *     settype: string,
+ *     short_offset: bool,
+ *     size1: int,
+ *     size2: int,
+ *     style: string,
+ *     subset: bool,
+ *     subsetchars: array<int, int>,
+ *     table: array<string, TFontDataTableItem>,
+ *     tableSubset: TFontDataTableSubset,
+ *     tot_num_glyphs: int,
+ *     type: string,
+ *     underlinePosition: int,
+ *     underlineThickness: int,
+ *     unicode: bool,
+ *     unitsPerEm: int,
+ *     up: int,
+ *     urk: float,
+ *     ut: int,
+ *     weight: string,
+ * }
  */
 abstract class Load
 {
     /**
-     * Valid Font types
-     *
-     * @var array<string, bool> Font types
-     */
-    protected const FONTTYPES = [
-        'Core' => true,
-        'TrueType' => true,
-        'TrueTypeUnicode' => true,
-        'Type1' => true,
-        'cidfont0' => true,
-    ];
-
-    /**
      * Font data
      *
-     * @var TFontData
+     * Adds the 'protected TFontData $fdt' property shared with Subset
      */
-    protected array $data = [
-        'Ascender' => 0,
-        'Ascent' => 0,
-        'AvgWidth' => 0.0,
-        'CapHeight' => 0,
-        'CharacterSet' => '',
-        'Descender' => 0,
-        'Descent' => 0,
-        'EncodingScheme' => '',
-        'FamilyName' => '',
-        'Flags' => 0,
-        'FontBBox' => [],
-        'FontName' => '',
-        'FullName' => '',
-        'IsFixedPitch' => false,
-        'ItalicAngle' => 0,
-        'Leading' => 0,
-        'MaxWidth' => 0,
-        'MissingWidth' => 0,
-        'StdHW' => 0,
-        'StdVW' => 0,
-        'StemH' => 0,
-        'StemV' => 0,
-        'UnderlinePosition' => 0,
-        'UnderlineThickness' => 0,
-        'Version' => '',
-        'Weight' => '',
-        'XHeight' => 0,
-        'bbox' => '',
-        'cbbox' => [],
-        'cidinfo' => [
-            'Ordering' => '',
-            'Registry' => '',
-            'Supplement' => 0,
-            'uni2cid' => [],
-        ],
-        'compress' => false,
-        'ctg' => '',
-        'ctgdata' => [],
-        'cw' => [],
-        'datafile' => '',
-        'desc' => [
-            'Ascent' => 0,
-            'AvgWidth' => 0,
-            'CapHeight' => 0,
-            'Descent' => 0,
-            'Flags' => 0,
-            'FontBBox' => '',
-            'ItalicAngle' => 0,
-            'Leading' => 0,
-            'MaxWidth' => 0,
-            'MissingWidth' => 0,
-            'StemH' => 0,
-            'StemV' => 0,
-            'XHeight' => 0,
-        ],
-        'diff' => '',
-        'diff_n' => 0,
-        'dir' => '',
-        'dw' => 0,
-        'enc' => '',
-        'enc_map' => [],
-        'encodingTables' => [],
-        'encoding_id' => 0,
-        'encrypted' => '',
-        'fakestyle' => false,
-        'family' => '',
-        'file' => '',
-        'file_n' => 0,
-        'file_name' => '',
-        'i' => 0,
-        'ifile' => '',
-        'indexToLoc' => [],
-        'input_file' => '',
-        'isUnicode' => false,
-        'italicAngle' => 0,
-        'key' => '',
-        'lenIV' => 0,
-        'length1' => 0,
-        'length2' => 0,
-        'linked' => false,
-        'mode' => [
-            'bold' => false,
-            'italic' => false,
-            'linethrough' => false,
-            'overline' => false,
-            'underline' => false,
-        ],
-        'n' => 0,
-        'name' => '',
-        'numGlyphs' => 0,
-        'numHMetrics' => 0,
-        'originalsize' => 0,
-        'pdfa' => false,
-        'platform_id' => 0,
-        'settype' => '',
-        'short_offset' => false,
-        'size1' => 0,
-        'size2' => 0,
-        'style' => '',
-        'subset' => false,
-        'subsetchars' => [],
-        'table' => [],
-        'tot_num_glyphs' => 0,
-        'type' => '',
-        'underlinePosition' => 0,
-        'underlineThickness' => 0,
-        'unicode' => false,
-        'unitsPerEm' => 0,
-        'up' => 0,
-        'urk' => 0.0,
-        'ut' => 0,
-        'weight' => '',
-    ];
+    use FontDataTrait;
 
     /**
      * Load the font data
@@ -310,7 +213,7 @@ abstract class Load
         $this->checkType();
         $this->setName();
         $this->setDefaultWidth();
-        if ($this->data['fakestyle']) {
+        if ($this->fdt['fakestyle']) {
             $this->setArtificialStyles();
         }
 
@@ -321,33 +224,34 @@ abstract class Load
      * Load the font data
      *
      * @throws FontException in case of error
-     *
-     * @SuppressWarnings("PHPMD.CyclomaticComplexity")
      */
     protected function getFontInfo(): void
     {
         $this->findFontFile();
 
-        // read the font definition file
-        if (! @\is_readable($this->data['ifile'])) {
-            throw new FontException('unable to read file: ' . $this->data['ifile']);
+        // Read the font definition file.
+        if (!@\is_readable($this->fdt['ifile'])) {
+            throw new FontException('unable to read file: ' . $this->fdt['ifile']);
         }
 
-        $fdt = @\file_get_contents($this->data['ifile']);
+        $fdt = @\file_get_contents($this->fdt['ifile']);
         if ($fdt === false) {
-            throw new FontException('unable to read file: ' . $this->data['ifile']);
+            throw new FontException('unable to read file: ' . $this->fdt['ifile']);
         }
 
-        $fdtdata = @\json_decode($fdt, true, 5, JSON_OBJECT_AS_ARRAY);
+        $fdtdata = @\json_decode($fdt, true, 10, JSON_OBJECT_AS_ARRAY);
         if ($fdtdata === null) {
             throw new FontException('JSON decoding error [' . \json_last_error() . ']');
         }
 
-        if (! \is_array($fdtdata) || (! isset($fdtdata['type']))) {
-            throw new FontException('fhe font definition file has a bad format: ' . $this->data['ifile']);
+        if (!\is_array($fdtdata) || !isset($fdtdata['type'])) {
+            throw new FontException('fhe font definition file has a bad format: ' . $this->fdt['ifile']);
         }
 
-        $this->data = \array_replace_recursive($this->data, $fdtdata);
+        /** @var TFontData $fdtdata */
+        $fdtdata = \array_replace_recursive($this->fdt, $fdtdata);
+
+        $this->fdt = $fdtdata;
     }
 
     /**
@@ -359,7 +263,8 @@ abstract class Load
     {
         $dir = new Dir();
         $dirs = [''];
-        if (\defined('K_PATH_FONTS')) {
+
+        if (\defined('K_PATH_FONTS') && \is_string(\K_PATH_FONTS)) {
             $dirs[] = K_PATH_FONTS;
             $glb = \glob(K_PATH_FONTS . DIRECTORY_SEPARATOR . '*', GLOB_ONLYDIR);
             if ($glb !== false) {
@@ -368,7 +273,7 @@ abstract class Load
         }
 
         $parent_font_dir = $dir->findParentDir('fonts', __DIR__);
-        if (($parent_font_dir !== '') && ($parent_font_dir !== '/')) {
+        if ($parent_font_dir !== '' && $parent_font_dir != '/') {
             $dirs[] = $parent_font_dir;
             $glb = \glob($parent_font_dir . DIRECTORY_SEPARATOR . '*', GLOB_ONLYDIR);
             if ($glb !== false) {
@@ -381,22 +286,18 @@ abstract class Load
 
     /**
      * Load the font data
-     *
-     * @throws FontException in case of error
      */
     protected function findFontFile(): void
     {
-        if (! empty($this->data['ifile'])) {
-            $this->data['dir'] = \dirname($this->data['ifile']);
+        if (!empty($this->fdt['ifile'])) {
+            $this->fdt['dir'] = \dirname($this->fdt['ifile']);
             return;
         }
 
-        $this->data['ifile'] = \strtolower($this->data['key']) . '.json';
+        $this->fdt['ifile'] = \strtolower($this->fdt['key']) . '.json';
 
         // find font definition file names
-        $files = \array_unique(
-            [\strtolower($this->data['key']) . '.json', \strtolower($this->data['family']) . '.json']
-        );
+        $files = \array_unique([\strtolower($this->fdt['key']) . '.json', \strtolower($this->fdt['family']) . '.json']);
 
         // directories where to search for the font definition file
         $dirs = $this->findFontDirectories();
@@ -404,29 +305,29 @@ abstract class Load
         foreach ($files as $file) {
             foreach ($dirs as $dir) {
                 if (@\is_readable($dir . DIRECTORY_SEPARATOR . $file)) {
-                    $this->data['ifile'] = $dir . DIRECTORY_SEPARATOR . $file;
-                    $this->data['dir'] = $dir;
+                    $this->fdt['ifile'] = $dir . DIRECTORY_SEPARATOR . $file;
+                    $this->fdt['dir'] = $dir;
                     break 2;
                 }
             }
 
             // we have not found the version with style variations
-            $this->data['fakestyle'] = true;
+            $this->fdt['fakestyle'] = true;
         }
     }
 
     protected function setDefaultWidth(): void
     {
-        if (! empty($this->data['dw'])) {
+        if (!empty($this->fdt['dw'])) {
             return;
         }
 
-        if ($this->data['desc']['MissingWidth'] > 0) {
-            $this->data['dw'] = $this->data['desc']['MissingWidth'];
-        } elseif (! empty($this->data['cw'][32])) {
-            $this->data['dw'] = $this->data['cw'][32];
+        if ($this->fdt['desc']['MissingWidth'] > 0) {
+            $this->fdt['dw'] = $this->fdt['desc']['MissingWidth'];
+        } elseif (!empty($this->fdt['cw'][32])) {
+            $this->fdt['dw'] = $this->fdt['cw'][32];
         } else {
-            $this->data['dw'] = 600;
+            $this->fdt['dw'] = 600;
         }
     }
 
@@ -437,11 +338,9 @@ abstract class Load
      */
     protected function checkType(): void
     {
-        if (isset(self::FONTTYPES[$this->data['type']])) {
-            return;
+        if (FontTypes::tryFrom($this->fdt['type']) === null) {
+            throw new FontException('Unknown font type: ' . $this->fdt['type']);
         }
-
-        throw new FontException('Unknown font type: ' . $this->data['type']);
     }
 
     /**
@@ -451,19 +350,21 @@ abstract class Load
      */
     protected function setName(): void
     {
-        if ($this->data['type'] == 'Core') {
-            $this->data['name'] = (string) Core::FONT[$this->data['key']];
-            $this->data['subset'] = false;
-        } elseif (($this->data['type'] == 'Type1') || ($this->data['type'] == 'TrueType')) {
-            $this->data['subset'] = false;
-        } elseif ($this->data['type'] == 'TrueTypeUnicode') {
-            $this->data['enc'] = 'Identity-H';
-        } elseif (($this->data['type'] == 'cidfont0') && ($this->data['pdfa'])) {
+        $fontType = FontTypes::tryFrom($this->fdt['type']);
+
+        if ($fontType == FontTypes::Core) {
+            $this->fdt['name'] = Core::FONT[$this->fdt['key']] ?? '';
+            $this->fdt['subset'] = false;
+        } elseif ($fontType == FontTypes::Type1 || $fontType == FontTypes::TrueType) {
+            $this->fdt['subset'] = false;
+        } elseif ($fontType == FontTypes::TrueTypeUnicode) {
+            $this->fdt['enc'] = 'Identity-H';
+        } elseif ($fontType == FontTypes::cidfont0 && $this->fdt['pdfa']) {
             throw new FontException('CID0 fonts are not supported, all fonts must be embedded in PDF/A mode!');
         }
 
-        if (empty($this->data['name'])) {
-            $this->data['name'] = (string) $this->data['key'];
+        if (empty($this->fdt['name'])) {
+            $this->fdt['name'] = (string) $this->fdt['key'];
         }
     }
 
@@ -473,41 +374,43 @@ abstract class Load
     protected function setArtificialStyles(): void
     {
         // artificial bold
-        if ($this->data['mode']['bold']) {
-            $this->data['name'] .= 'Bold';
-            $this->data['desc']['StemV'] = empty($this->data['desc']['StemV'])
-                ? 123 : (int) \round($this->data['desc']['StemV'] * 1.75);
+        if ($this->fdt['mode']['bold']) {
+            $this->fdt['name'] .= 'Bold';
+            $this->fdt['desc']['StemV'] = empty($this->fdt['desc']['StemV'])
+                ? 123
+                : (int) \round($this->fdt['desc']['StemV'] * 1.75);
         }
 
         // artificial italic
-        if ($this->data['mode']['italic']) {
-            $this->data['name'] .= 'Italic';
-            if (! empty($this->data['desc']['ItalicAngle'])) {
-                $this->data['desc']['ItalicAngle'] -= 11;
+        if ($this->fdt['mode']['italic']) {
+            $this->fdt['name'] .= 'Italic';
+            if (!empty($this->fdt['desc']['ItalicAngle'])) {
+                $this->fdt['desc']['ItalicAngle'] -= 11;
             } else {
-                $this->data['desc']['ItalicAngle'] = -11;
+                $this->fdt['desc']['ItalicAngle'] = -11;
             }
 
-            if (! empty($this->data['desc']['Flags'])) {
-                $this->data['desc']['Flags'] |= 64; //bit 7
+            if (!empty($this->fdt['desc']['Flags'])) {
+                $this->fdt['desc']['Flags'] |= 64; //bit 7
             } else {
-                $this->data['desc']['Flags'] = 64;
+                $this->fdt['desc']['Flags'] = 64;
             }
         }
     }
 
     public function setFileData(): void
     {
-        if (empty($this->data['file'])) {
+        if (empty($this->fdt['file'])) {
             return;
         }
 
-        if (\str_contains($this->data['type'], 'TrueType')) {
-            $this->data['length1'] = $this->data['originalsize'];
-            $this->data['length2'] = 0;
-        } elseif ($this->data['type'] != 'Core') {
-            $this->data['length1'] = $this->data['size1'];
-            $this->data['length2'] = $this->data['size2'];
+        $fontType = FontTypes::tryFrom($this->fdt['type']);
+        if (\in_array($fontType, [FontTypes::TrueType, FontTypes::TrueTypeUnicode])) {
+            $this->fdt['length1'] = $this->fdt['originalsize'];
+            $this->fdt['length2'] = 0;
+        } elseif ($fontType == FontTypes::Core) {
+            $this->fdt['length1'] = $this->fdt['size1'];
+            $this->fdt['length2'] = $this->fdt['size2'];
         }
     }
 }

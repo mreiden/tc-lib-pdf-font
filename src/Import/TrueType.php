@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * TrueType.php
  *
@@ -17,9 +19,13 @@
 namespace Com\Tecnick\Pdf\Font\Import;
 
 use Com\Tecnick\File\Byte;
+use Com\Tecnick\File\Compression;
 use Com\Tecnick\File\Exception as FileException;
 use Com\Tecnick\File\File;
+use Com\Tecnick\Pdf\Font\Enum\GlyphType;
+use Com\Tecnick\Pdf\Font\Enum\SubsetMode;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
+use Com\Tecnick\Pdf\Font\Subset;
 
 /**
  * Com\Tecnick\Pdf\Font\Import\TrueType
@@ -33,6 +39,9 @@ use Com\Tecnick\Pdf\Font\Exception as FontException;
  * @link      https://github.com/tecnickcom/tc-lib-pdf-font
  *
  * @phpstan-import-type TFontData from \Com\Tecnick\Pdf\Font\Load
+ * @phpstan-import-type TFontDataEncTable from \Com\Tecnick\Pdf\Font\Load
+ * @phpstan-import-type TFontDataTableItem from \Com\Tecnick\Pdf\Font\Load
+ * @phpstan-import-type TFontDataTableSubset from \Com\Tecnick\Pdf\Font\Load
  *
  * @SuppressWarnings("PHPMD.ExcessiveClassComplexity")
  * @SuppressWarnings("PHPMD.ExcessiveClassLength")
@@ -40,46 +49,81 @@ use Com\Tecnick\Pdf\Font\Exception as FontException;
 class TrueType
 {
     /**
-     * Array containing subset chars
+     * Blank template for a table
      *
-     * @var array<int, bool>
+     * @var TFontDataTableItem TEMPLATE_TABLE
      */
-    protected array $subchars = [];
-
-    /**
-     * Array containing subset glyphs indexes of chars from cmap table
-     *
-     * @var array<int, bool>
-     */
-    protected array $subglyphs = [
-        0 => true,
+    public const TEMPLATE_TABLE = [
+        'checkSum' => 0,
+        'offset' => 0,
+        'length' => 0,
+        'length_nul_padding' => 0,
+        'data' => '',
     ];
 
     /**
-     * Pointer position on the original font data
+     * Array mapping subset glyph ids to character codes from cmap table.
+     *
+     * @var array<int, int>
      */
-    protected int $offset = 0;
+    protected array $subglyphs = [];
+
+    /**
+     * SubsetMode indicates if this TrueType instance is used to subset rather than import a font.
+     */
+    private readonly SubsetMode $subsetMode;
 
     /**
      * Process TrueType font
      *
-     * @param string           $font     Content of the input font file
-     * @param TFontData        $fdt      Extracted font metrics
-     * @param Byte             $fbyte    Object used to read font bytes
-     * @param array<int, bool> $subchars Array containing subset chars
+     * @param string            $font       Content (binary) of the input font file
+     * @param TFontData         $fdt        Extracted font metrics
+     * @param Byte              $fbyte      Object used to read font bytes
+     * @param array<int, int>   $subchars   Array mapping subset chars to the new subset glyph ids
      *
      * @throws FileException
      * @throws FontException
      */
     public function __construct(
-        protected string $font,
+        protected readonly string $font,
         protected array $fdt,
-        protected Byte $fbyte,
-        array $subchars = []
+        protected readonly Byte $fbyte,
+        protected array $subchars = [],
     ) {
-        \ksort($subchars);
-        $this->subchars = $subchars;
+        if (empty($fdt['subset']) || !\filter_var($fdt['subset'], FILTER_VALIDATE_BOOLEAN)) {
+            $this->subsetMode = SubsetMode::OFF;
+        } elseif (Subset::enableDebug()) {
+            $this->subsetMode = SubsetMode::DEBUG;
+        } else {
+            $this->subsetMode = SubsetMode::ON;
+        }
+
         $this->process();
+    }
+
+    /**
+     * Process TrueType font
+     *
+     * @throws FileException
+     * @throws FontException
+     */
+    protected function process(): void
+    {
+        $this->isValidType();
+        $this->setFontFile();
+        $this->getTables();
+        $this->checkMagickNumber();
+        $this->getBbox();
+        $this->getIndexToLoc();
+        $this->getEncodingTables();
+        $this->getOS2Metrics();
+        $this->getFontName();
+        $this->getPostData();
+        $this->getHheaData();
+        $this->getMaxpData();
+        $this->getCIDToGIDMap();
+        $this->getHeights();
+        $this->getWidths();
     }
 
     /**
@@ -95,37 +139,11 @@ class TrueType
     /**
      * Get glyphs in the subset
      *
-     * @return array<int, bool>
+     * @return array<int, int>
      */
     public function getSubGlyphs(): array
     {
         return $this->subglyphs;
-    }
-
-    /**
-     * Process TrueType font
-     *
-     * @throws FileException
-     * @throws FontException
-     */
-    protected function process(): void
-    {
-        $this->isValidType();
-        $this->setFontFile();
-        $this->getTables();
-        $this->checkMagickNumber();
-        $this->offset += 2; // skip flags
-        $this->getBbox();
-        $this->getIndexToLoc();
-        $this->getEncodingTables();
-        $this->getOS2Metrics();
-        $this->getFontName();
-        $this->getPostData();
-        $this->getHheaData();
-        $this->getMaxpData();
-        $this->getCIDToGIDMap();
-        $this->getHeights();
-        $this->getWidths();
     }
 
     /**
@@ -137,22 +155,21 @@ class TrueType
      */
     protected function isValidType(): void
     {
-        if ($this->fbyte->getULong($this->offset) != 0x00010000) {
+        if ($this->fbyte->getULong(0) != 0x00010000) {
             throw new FontException('sfnt version must be 0x00010000 for TrueType version 1.0.');
         }
-
-        $this->offset += 4;
     }
 
     /**
      * Copy or link the original font file
      *
      * @throws FileException
-     * @throws FontException
      */
     protected function setFontFile(): void
     {
-        if (! empty($this->fdt['desc']['MaxWidth'])) {
+        // The font has already been imported if 'MaxWidth' exists and should not be reimported.
+        // The Subset class loads the original font and should bypass the import.
+        if (!empty($this->fdt['desc']['MaxWidth'])) {
             // subsetting mode
             $this->fdt['Flags'] = $this->fdt['desc']['Flags'];
             return;
@@ -170,92 +187,84 @@ class TrueType
 
         // store compressed font
         $this->fdt['file'] = $this->fdt['file_name'] . '.z';
+        file_put_contents($this->fdt['dir'] . $this->fdt['file'], $this->fdt['file']);
+
         $file = new File();
         $fpt = $file->fopenLocal($this->fdt['dir'] . $this->fdt['file'], 'wb');
-
-        $cmpr = \gzcompress($this->font);
-        if ($cmpr === false) {
-            throw new FontException('Error compressing font file.');
-        }
-
-        \fwrite($fpt, $cmpr);
+        \fwrite($fpt, Compression::compress($this->font));
         \fclose($fpt);
     }
 
     /**
      * Get the font tables
      *
-     *  TableDirectory:
-     *   0 - uint32  sfntVersion    Either 0x00010000 (For TTF font) or 0x4F54544F (which spells OTTO)
-     *   4 - uint16  numTables      Number of tables in font file
-     *   6 - uint16  searchRange    pow(2, floor(log2(numTables))) * 16 OR 1 << (entrySelector+4)
-     *   8 - uint16  entrySelector  floor(log2(numTables))
-     *  10 - uint16  rangeShift     numTables * 16 - searchRange
+     * TableDirectory:
+     *   0 - uint32                    sfntVersion    Either 0x00010000 (For TTF font) or 0x4F54544F (which spells OTTO)
+     *   4 - uint16                    numTables      Number of tables in font file
+     *   6 - uint16                    searchRange    pow(2, floor(log2(numTables))) * 16 OR 1 << (entrySelector+4)
+     *   8 - uint16                    entrySelector  floor(log2(numTables))
+     *  10 - uint16                    rangeShift     numTables * 16 - searchRange
+     *  12 - TableRecord[numTables]    tableRecords
      *
-     *  TableRecord (starts at byte-offset 12):
-     *    - uint8[4] tag           4 * ascii characters (range from 0x20 tp 0x7E) right padded with 0x20 (space) if len < 4
-     *    - uint32   checksum      The checksum for this table
-     *    - Offset32 offset        The table offset in bytes from the beginning of the font file
-     *    - uint32   length        The size of a table in bytes (excluding padding bytes)
+     * TableRecord (16 bytes):
+     *   0 - uint8[4]                  tag            4 ascii characters (range from 0x20 tp 0x7E) right padded with 0x20 (space) if len < 4
+     *   4 - uint32                    checksum       The checksum for this table
+     *   8 - Offset32                  offset         The table offset in bytes from the beginning of the font file
+     *  12 - uint32                    length         The size of a table in bytes (excluding padding bytes)
      */
     protected function getTables(): void
     {
-        // get number of tables
-        $numTables = $this->fbyte->getUShort($this->offset);
-        $this->offset += 2;
+        $numTables = $this->fbyte->getUShort(4);
 
-        // Skip the searchRange, entrySelector and rangeShift fields (3 * uint16)
-        $this->offset += 6;
+        // Skip unused searchRange, entrySelector and rangeShift fields
 
-        // tables array
+        // TableRecords begin at byte-offset 12
+        $offset_loop = 12;
+        // Get TableRecords
         $this->fdt['table'] = [];
-        // ---------- get tables ----------
-        for ($idx = 0; $idx < $numTables; ++$idx) {
-            // get table info
-            $tag = \substr($this->font, $this->offset, 4);
-            $this->offset += 4;
+        for ($i = 0; $i < $numTables; $i++) {
+            // table tag (name of table)
+            $tag = \substr($this->font, $offset_loop, 4);
+
+            $checksum = $this->fbyte->getULong($offset_loop + 4);
+            $offset = $this->fbyte->getULong($offset_loop + 8);
+            $length = $this->fbyte->getULong($offset_loop + 12);
             $this->fdt['table'][$tag] = [
-                'checkSum' => 0,
+                'checkSum' => $checksum,
+                'offset' => $offset,
                 'data' => '',
-                'length' => 0,
-                'offset' => 0,
+                'length' => $length,
+                'length_nul_padding' => 0,
             ];
-            $this->fdt['table'][$tag]['checkSum'] = $this->fbyte->getULong($this->offset);
-            $this->offset += 4;
-            $this->fdt['table'][$tag]['offset'] = $this->fbyte->getULong($this->offset);
-            $this->offset += 4;
-            $this->fdt['table'][$tag]['length'] = $this->fbyte->getULong($this->offset);
-            $this->offset += 4;
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 16;
         }
     }
 
     /**
-     * Verify the font file includes the mandatory magicNumber field
+     * Verify the font file has the mandatory magic number value in its "head" table
      *
-     * Valid TTF 1.0 files have the magic number 0x5f0f3cf5 in
-     * the "head" table offset 12 bytes from the start of the table.
+     * Valid TTF 1.0 files have the magic number 0x5f0f3cf5 in the "head" table at byte offset 12.
      *
      * @throws FontException if the font is invalid
      */
     protected function checkMagickNumber(): void
     {
-        $this->offset = ($this->fdt['table']['head']['offset'] + 12);
-        if ($this->fbyte->getULong($this->offset) != 0x5f0f3cf5) {
-            // magicNumber must be 0x5f0f3cf5
+        // The file offset of the magic number is the "head" table offset + 12 bytes
+        if ($this->fbyte->getULong($this->fdt['table']['head']['offset'] + 12) != 0x5f0f3cf5) {
             throw new FontException('magicNumber must be 0x5f0f3cf5');
         }
-
-        $this->offset += 4;
     }
 
     /**
-     *  Parse Font Header Table (head) for BBox, units and flags
+     * Parse Font Header Table (head) for BBox, units and flags
      *
      *  0 - uint16             majorVersion        Major version of font header table (always 1)
      *  2 - uint16             minorVersion        Major version of font header table (always 0)
      *  6 - Fixed (32-bit)     fontRevision        Set by font manufacturer (Fixed = 4 bytes)
      * 10 - uint32             checksumAdjustment
-     * 14 - uint32             magicNumber         Always 0x5F0F3CF5
+     * 14 - uint32             magicNumber         Always 0x5f0f3cf5
      * 16 - uint16             flags               @Link https://learn.microsoft.com/en-us/typography/opentype/spec/head
      * 18 - uint16             unitsPerEm          Any value from 16 to 16384 (a power of 2 is recommended)
      * 26 - LONGDATETIME       created             64-bit number of seconds since 12:00 midnight 1904/01/01 in GMT/UTC time zone.
@@ -264,7 +273,7 @@ class TrueType
      * 38 - int16              yMin                Minimum y coordinate across all glyph bounding boxes.
      * 40 - int16              xMax                Maximum x coordinate across all glyph bounding boxes.
      * 42 - int16              yMax                Maximum y coordinate across all glyph bounding boxes.
-     * 44 - uint16             macStyle            bits (0:Bold, 1:Italic, 2:Underline, 3:Outline, 4:Shadow, 5:Condensed, 6:Extended, 7-15:(0) Reserved)
+     * 44 - uint16             macStyle            bits (0:Bold, 1:Italic, 2:Underline, 3:Outline, 4:Shadow, 5:Condensed, 6:Extended, 7-15:Reserved [always 0])
      * 46 - uint16             lowestRecPPEM       Smallest readable size in pixels.
      * 48 - int16              fontDirectionHint   Deprecated -- Set to 2
      * 50 - int16              indexToLocFormat    0 for short offsets (Offset16), 1 for long (Offset32).
@@ -274,29 +283,28 @@ class TrueType
      */
     protected function getBbox(): void
     {
-        $this->fdt['unitsPerEm'] = $this->fbyte->getUShort($this->offset);
-        $this->offset += 2;
+        $offset_file = $this->fdt['table']['head']['offset'];
+
+        $this->fdt['unitsPerEm'] = $this->fbyte->getUShort($offset_file + 18);
         // units ratio constant
-        $this->fdt['urk'] = (1000 / $this->fdt['unitsPerEm']);
-        // skip field: created: (LONGDATETIME int64)
-        // skip field: modified: (LONGDATETIME int64)
-        $this->offset += 16;
-        $xMin = (int) \round($this->fbyte->getFWord($this->offset) * $this->fdt['urk']);
-        $this->offset += 2;
-        $yMin = (int) \round($this->fbyte->getFWord($this->offset) * $this->fdt['urk']);
-        $this->offset += 2;
-        $xMax = (int) \round($this->fbyte->getFWord($this->offset) * $this->fdt['urk']);
-        $this->offset += 2;
-        $yMax = (int) \round($this->fbyte->getFWord($this->offset) * $this->fdt['urk']);
-        $this->offset += 2;
-        $this->fdt['bbox'] = $xMin . ' ' . $yMin . ' ' . $xMax . ' ' . $yMax;
-        $macStyle = $this->fbyte->getUShort($this->offset);
-        $this->offset += 2;
+        $this->fdt['urk'] = 1000 / $this->fdt['unitsPerEm'];
+        // skip field: created (LONGDATETIME int64)
+        // skip field: modified (LONGDATETIME int64)
+        $xMin = (int) \round($this->fbyte->getFWord($offset_file + 36) * $this->fdt['urk']);
+        $yMin = (int) \round($this->fbyte->getFWord($offset_file + 38) * $this->fdt['urk']);
+        $xMax = (int) \round($this->fbyte->getFWord($offset_file + 40) * $this->fdt['urk']);
+        $yMax = (int) \round($this->fbyte->getFWord($offset_file + 42) * $this->fdt['urk']);
+        $this->fdt['bbox'] = "$xMin $yMin $xMax $yMax";
+
         // PDF font flags
+        $macStyle = $this->fbyte->getUShort($offset_file + 44);
         if (($macStyle & 2) == 2) {
             // italic flag
             $this->fdt['Flags'] |= 64;
         }
+
+        // indexToLocFormat
+        $this->fdt['short_offset'] = 0 === $this->fbyte->getShort($offset_file + 50);
     }
 
     /**
@@ -309,73 +317,78 @@ class TrueType
     protected function getIndexToLoc(): void
     {
         // indexToLocFormat flag in the head table (indexToLocFormat : 0 = short, 1 = long)
-        $this->offset = ($this->fdt['table']['head']['offset'] + 50);
-        $this->fdt['short_offset'] = ($this->fbyte->getShort($this->offset) == 0);
-        $this->offset += 2;
-        // get the offsets to the locations of the glyphs in the font, relative to the beginning of the glyphData table
-        $this->fdt['indexToLoc'] = [];
-        $this->offset = $this->fdt['table']['loca']['offset'];
+        $this->fdt['short_offset'] = 0 === $this->fbyte->getShort($this->fdt['table']['head']['offset'] + 50);
+
+        $locaData = \substr($this->font, $this->fdt['table']['loca']['offset'], $this->fdt['table']['loca']['length']);
+
         if ($this->fdt['short_offset']) {
-            // The loca table uses data type Offset16 (uint16-be)
-            $this->fdt['tot_num_glyphs'] = (int) \floor($this->fdt['table']['loca']['length'] / 2); // numGlyphs + 1
-            for ($idx = 0; $idx < $this->fdt['tot_num_glyphs']; ++$idx) {
-                $this->fdt['indexToLoc'][$idx] = $this->fbyte->getUShort($this->offset) * 2;
-                if (
-                    isset($this->fdt['indexToLoc'][($idx - 1)])
-                    && ($this->fdt['indexToLoc'][$idx] === $this->fdt['indexToLoc'][($idx - 1)])
-                ) {
-                    // the last glyph didn't have an outline
-                    unset($this->fdt['indexToLoc'][($idx - 1)]);
-                }
-
-                $this->offset += 2;
-            }
+            $numGlyphs = (int) \floor($this->fdt['table']['loca']['length'] / 2);
+            $unpack_format = 'n' . $numGlyphs;
         } else {
-            // The loca table uses data type Offset32 (uint32-be)
-            $this->fdt['tot_num_glyphs'] = (int) \floor($this->fdt['table']['loca']['length'] / 4); // numGlyphs + 1
-            for ($idx = 0; $idx < $this->fdt['tot_num_glyphs']; ++$idx) {
-                $this->fdt['indexToLoc'][$idx] = $this->fbyte->getULong($this->offset);
-                if (
-                    isset($this->fdt['indexToLoc'][($idx - 1)])
-                    && ($this->fdt['indexToLoc'][$idx] === $this->fdt['indexToLoc'][($idx - 1)])
-                ) {
-                    // the last glyph didn't have an outline
-                    unset($this->fdt['indexToLoc'][($idx - 1)]);
-                }
+            $numGlyphs = (int) \floor($this->fdt['table']['loca']['length'] / 4);
+            $unpack_format = 'N' . $numGlyphs;
+        }
+        // This includes the one additional offset used to calculate the byte size of the last glyph
+        $this->fdt['tot_num_glyphs'] = $numGlyphs;
 
-                $this->offset += 4;
+        // unpack produces an array using one-based indexing. Use array_values to change it to zero-based indexing.
+        $indexToLoc = \unpack($unpack_format, $locaData);
+
+        if ($indexToLoc === false) {
+            throw new FontException('Unable to unpack TTF loca table data.');
+        }
+        /** @var array<int, int> $indexToLoc */
+        $this->fdt['indexToLoc'] = \array_values($indexToLoc);
+
+        // The stored offset values must be multiplied by 2 when stored in the short format (Offset16)
+        if ($this->fdt['short_offset']) {
+            foreach ($this->fdt['indexToLoc'] as &$value) {
+                $value *= 2;
             }
         }
+
+        // Subtract the one additional offset to match the number of glyphs and not glyphs + 1
+        $this->fdt['tot_num_glyphs']--;
     }
 
     /**
      * Map character encoding ids to the index of the matching glyph (TTF cmap table)
      *
      * cmap table header:
-     *   - uint16   version            Table version number (Always 0)
-     *   - uint16   numTables          Number of encoding tables
+     *  0 - uint16   version            Table version number (Always 0)
+     *  2 - uint16   numTables          Number of encoding tables
      *
-     * EncodingRecord :
-     *   - uint16   platformId         Platform ID
-     *   - uint16   encodingId         Platform-specific encoding ID
-     *   - Offset32 subtableOffset     Byte offset from beginning of cmap table to the encoding subtable
+     * EncodingRecord (8 bytes):
+     *  0 - uint16   platformId         Platform ID
+     *  2 - uint16   encodingId         Platform-specific encoding ID
+     *  4 - Offset32 subtableOffset     Byte offset from beginning of cmap table to the encoding subtable
      *
      * @return void
      */
     protected function getEncodingTables(): void
     {
-        $this->offset = $this->fdt['table']['cmap']['offset'] + 2;
-        $numEncodingTables = $this->fbyte->getUShort($this->offset);
-        $this->offset += 2;
-        $this->fdt['encodingTables'] = [];
-        for ($idx = 0; $idx < $numEncodingTables; ++$idx) {
-            $this->fdt['encodingTables'][$idx]['platformID'] = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
-            $this->fdt['encodingTables'][$idx]['encodingID'] = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
-            $this->fdt['encodingTables'][$idx]['offset'] = $this->fbyte->getULong($this->offset);
-            $this->offset += 4;
+        $offset_file = $this->fdt['table']['cmap']['offset'];
+
+        // Skip the version field in cmap header since it is always 0
+
+        // Number of EncodingRecords
+        $numEncodingTables = $this->fbyte->getUShort($offset_file + 2);
+
+        // EncodingRecords begin at byte-offset 4
+        $offset_loop = $offset_file + 4;
+        // Get cmap EncodingRecords
+        $encTables = [];
+        for ($i = 0; $i < $numEncodingTables; $i++) {
+            $encTables[] = [
+                'platformId' => $this->fbyte->getUShort($offset_loop),
+                'encodingId' => $this->fbyte->getUShort($offset_loop + 2),
+                'offset' => $this->fbyte->getULong($offset_loop + 4),
+            ];
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 8;
         }
+        $this->fdt['encodingTables'] = $encTables;
     }
 
     /**
@@ -409,7 +422,7 @@ class TrueType
      *  38 - uint32       ulUnicodeRange2     Unicode Character Range 2
      *  42 - uint32       ulUnicodeRange3     Unicode Character Range 3
      *  46 - uint32       ulUnicodeRange4     Unicode Character Range 4
-     *  50 - uint8[4]     tag                 4 * ascii (range from 0x20 tp 0x7E) right padded with 0x20 (space) if len < 4
+     *  50 - uint8[4]     tag                 4 * ascii (range from 0x20 to 0x7E) right padded with 0x20 (space) if len < 4
      *  54 - uint16       fsSelection
      *  56 - uint16       usFirstCharIndex
      *  58 - uint16       usLastCharIndex
@@ -425,69 +438,28 @@ class TrueType
      */
     protected function getOS2Metrics(): void
     {
-        $this->offset = $this->fdt['table']['OS/2']['offset'];
-        $this->offset += 2; // skip version
+        $offset_file = $this->fdt['table']['OS/2']['offset'];
+
+        // skip os2 table version since none of the extra fields in versions > 0 are used
+
         // xAvgCharWidth
-        $this->fdt['AvgWidth'] = (int) \round($this->fbyte->getFWord($this->offset) * $this->fdt['urk']);
-        $this->offset += 2;
+        $this->fdt['AvgWidth'] = (int) \round($this->fbyte->getFWord($offset_file + 2) * $this->fdt['urk']);
+
         // usWeightClass
-        $usWeightClass = \round($this->fbyte->getUFWord($this->offset) * $this->fdt['urk']);
+        $usWeightClass = \round($this->fbyte->getUShort($offset_file + 4) * $this->fdt['urk']);
         // estimate StemV and StemH (400 = usWeightClass for Normal - Regular font)
         $this->fdt['StemV'] = (int) \round((70 * $usWeightClass) / 400);
         $this->fdt['StemH'] = (int) \round((30 * $usWeightClass) / 400);
-        $this->offset += 2;
-        $this->offset += 2; // usWidthClass
-        $fsType = $this->fbyte->getShort($this->offset);
-        $this->offset += 2;
-        if ($fsType == 2) {
+
+        // fsType
+        $fsType = $this->fbyte->getUShort($offset_file + 8);
+        if ($fsType & 0x2) {
+            // Usage permissions (bit 2): Restricted License embedding
             throw new FontException(
-                'This Font cannot be modified, embedded or exchanged in any manner'
-                . ' without first obtaining permission of the legal owner.'
+                'This Font cannot be modified, embedded or exchanged in any manner' .
+                    ' without first obtaining permission of the legal owner.',
             );
         }
-    }
-
-    /**
-     * Convert string encoding based on the platformId and encodingId using the mb_convert_encoding
-     * or iconv functions if they are available.
-     *
-     * @param string    $str           The encoded string from the TTF NameRecord to convert
-     * @param int       $platformId    The platformId from the TTF NameRecord
-     * @param int       $encodingId    The encodingId from the TTF NameRecord
-     *
-     * @return string   Returns the string converted to UTF-8 or the original string if conversion
-     *                  fails or is not  available.
-     */
-    protected function convertStringEncoding(string $str, int $platformId, int $encodingId): string
-    {
-        $original = $str;
-
-        if ($platformId == 1) {
-            // Legacy Macintosh platform uses 'MacRoman' encoding which is not available in PHP mbstring.
-            // Convert with iconv (macintosh = MacRoman) if available or mb_convert_encoding using
-            // Windows-1252 (closest substitute for MacRoman) if available.
-            $str = \function_exists('\iconv')
-                ? \iconv('macintosh', 'UTF-8', $str)
-                : (\function_exists('\mb_convert_encoding')
-                    ? \mb_convert_encoding($str, 'UTF-8', 'Windows-1252')
-                    : $str);
-        } elseif (\function_exists('\mb_convert_encoding')) {
-            // All Unicode (platformId=0) strings are UTF-16BE
-            $stringEncoding = 'UTF-16BE';
-
-            // Windows platform (platformId=3) uses specific string encodings for encodingIds 3, 4, and 5
-            if ($platformId == 3) {
-                $stringEncoding = match ($encodingId) {
-                    3 => 'CP936',
-                    4 => 'CP950',
-                    5 => 'CP949',
-                    default => 'UTF-16BE',
-                };
-            }
-            $str = \mb_convert_encoding($str, 'UTF-8', $stringEncoding);
-        }
-
-        return is_string($str) ? $str : $original;
     }
 
     /**
@@ -507,105 +479,226 @@ class TrueType
      *  8 - uint16   length             String length (in bytes)
      * 10 - Offset16 stringOffset       String offset from start of storage area (in bytes)
      *
+     *  List of standard Name IDs:
+     *   -  0: Copyright notice
+     *   -  1: Font Family Name
+     *   -  2: Font Subfamily Name
+     *   -  3: Unique font identifier
+     *   -  4: Full font name reflecting all family and relevant subfamily descriptors
+     *   -  5: Version string beginning with "Version <number>.<number>" case-insensitive
+     *   -  6: Postscript name for the font.
+     *   -  7: Trademark
+     *   -  8: Manufacturer Name
+     *   -  9: Designer Name
+     *   - 10: Description (can be very long and will be dropped in subsetting)
+     *   - 11: URL of Vendor
+     *   - 12: URL of Designer
+     *   - 13: License Description (can be very long and will be dropped in subsetting)
+     *   - 14: License Info URL
+     *   ...
+     *   - 25: Variations PostScript Name Prefix
+     *
      * @return void
      *
      * @throws FontException
      */
     protected function getFontName(): void
     {
+        $table = &$this->fdt['table']['name'];
+        $tableSubset = &$this->fdt['tableSubset']['name'];
+
+        // The sanitized font name
         $this->fdt['name'] = '';
-        $this->offset = $this->fdt['table']['name']['offset'];
-        $this->offset += 2; // skip Format selector (=0).
-        // Number of NameRecords that follow n.
-        $numNameRecords = $this->fbyte->getUShort($this->offset);
-        $this->offset += 2;
+
+        // skip name table version since none of the V=1 fields are used
+
+        // count -- Number of NameRecords
+        $numNameRecords = $this->fbyte->getUShort($table['offset'] + 2);
 
         // Offset to start of string storage (from start of table).
-        $stringStorageOffset = $this->fbyte->getUShort($this->offset);
-        $this->offset += 2;
-        for ($idx = 0; $idx < $numNameRecords; ++$idx) {
-            $platformId = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
-            $encodingId = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
-            $this->offset += 2; // Skip languageId.
+        $storageOffset = $this->fbyte->getUShort($table['offset'] + 4);
 
-            /**
-             * List of standard Name IDs:
-             *  -  0: Copyright notice
-             *  -  1: Font Family Name
-             *  -  2: Font Subfamily Name
-             *  -  3: Unique font identifier
-             *  -  4: Full font name reflecting all family and relevant subfamily descriptors
-             *  -  5: Version string beginning with "Version <number>.<number>" case-insensitive
-             *  -  6: Postscript name for the font.
-             *  -  7: Trademark
-             *  -  8: Manufacturer Name
-             *  -  9: Designer Name
-             *  - 10: Description
-             *  - 11: URL of Vendor
-             *  - 12: URL of Designer
-             *  - 13: License Description (can be very long and will be dropped in subsetting)
-             *  - 14: License Info URL
-             *  ...
-             *  - 25: Variations PostScript Name Prefix
-             */
-            $nameID = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
-            if ($nameID == 6) {
-                // String length (in bytes).
-                $stringLength = $this->fbyte->getUShort($this->offset);
-                $this->offset += 2;
-                // String offset from start of storage area (in bytes).
-                $stringOffset = $this->fbyte->getUShort($this->offset);
-                $this->offset += 2;
+        // NameRecords begin at byte-offset 6
+        $offset_loop = $table['offset'] + 6;
+        for ($idx = 0; $idx < $numNameRecords; $idx++) {
+            $platformId = $this->fbyte->getUShort($offset_loop);
+            $encodingId = $this->fbyte->getUShort($offset_loop + 2);
+            $languageId = $this->fbyte->getUShort($offset_loop + 4);
 
-                $this->offset = ($this->fdt['table']['name']['offset'] + $stringStorageOffset + $stringOffset);
-                // TTF encoded name string
-                $name = \substr($this->font, $this->offset, $stringLength);
-                // Convert the string encoding if possible
-                $name = $this->convertStringEncoding($name, $platformId, $encodingId);
-
-                $name = \preg_replace('/[^a-zA-Z0-9_\-]/', '', $name);
-                if (($name === null) || ($name === '')) {
-                    throw new FontException('Error getting font name.');
-                }
-
-                $this->fdt['name'] = $name;
-                break;
-            } else {
-                $this->offset += 4; // skip String length, String offset
+            // UTF-16BE Unicode or Windows Unicode platforms
+            if (\in_array([$platformId, $encodingId], [[0, 3], [3, 1]], true)) {
+                $tableSubset['platformId'] = $platformId;
+                $tableSubset['encodingId'] = $encodingId;
+                $tableSubset['languageId'] = $languageId;
             }
+
+            $nameID = $this->fbyte->getUShort($offset_loop + 6);
+            $fontNameOnly = $nameID == 6 && !$this->subsetMode->debug();
+            if (
+                !isset($tableSubset['nameIds'][$nameID]) &&
+                ($fontNameOnly || \in_array($nameID, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, /*10,*/ 11, 12, /*13,*/ 14]))
+            ) {
+                // String length (in bytes)
+                $stringLength = $this->fbyte->getUShort($offset_loop + 8);
+                // String offset from start of storage area (in bytes)
+                $stringOffset = $this->fbyte->getUShort($offset_loop + 10);
+                // The encoded name string
+                $name = \substr($this->font, $table['offset'] + $storageOffset + $stringOffset, $stringLength);
+                // The decoded name string
+                $name = $this->decodeNameString($name, $platformId, $encodingId);
+
+                // Add the name to be included in font subsetting.
+                $tableSubset['nameIds'][$nameID] = $name;
+
+                if ($fontNameOnly) {
+                    break;
+                }
+            }
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 12;
         }
+
+        // Throw an exception if no font name was found
+        if (empty($tableSubset['nameIds'][6])) {
+            throw new FontException('Error getting font name.');
+        }
+
+        // Save sanitized font name.
+        $this->fdt['name'] =
+            \preg_replace('/[^a-zA-Z0-9_\-]/', '', $tableSubset['nameIds'][6]) ?? $tableSubset['nameIds'][6];
+    }
+
+    /**
+     * Converts a name string to UTF-8 if the iconv or mbstring PHP extensions are available.
+     *
+     * @param string    $name          The encoded name, usually in UTF-16BE encoding.
+     * @param int       $platformId    The platformId from the encoding table.
+     * @param int       $encodingId    The encodingId from the encoding table.
+     *
+     * @return string
+     */
+    protected function decodeNameString(string $name, int $platformId, int $encodingId): string
+    {
+        // Convert name string to UTF-8 if iconv or mbstring is available
+        if ($platformId == 1) {
+            // Legacy Macintosh platform uses 'MacRoman' encoding which is not available in PHP mbstring.
+            // Convert with iconv (macintosh = MacRoman) if available or mb_convert_encoding using
+            // Windows-1252 (closest substitute for MacRoman) if available.
+            if (\function_exists('\iconv')) {
+                $newName = \iconv('macintosh', 'UTF-8', $name) ?: null;
+            }
+            return $newName ?? (\mb_convert_encoding($name, 'UTF-8', 'Windows-1252') ?: $name);
+        }
+
+        // All Unicode (platformId=0) strings are UTF-16BE
+        $stringEncoding = 'UTF-16BE';
+
+        // Windows platform (platformId=3) uses specific string encodings for encodingIds 3, 4, and 5
+        if ($platformId == 3) {
+            $stringEncoding = match ($encodingId) {
+                3 => 'CP936',
+                4 => 'CP950',
+                5 => 'CP949',
+                default => 'UTF-16BE',
+            };
+        }
+        return \mb_convert_encoding($name, 'UTF-8', $stringEncoding) ?: $name;
     }
 
     /**
      * Get the PostScript Table (TTF post table)
+     *  0             - Version16Dot16     version             1.0=0x00010000, 2.0=0x00020000, (deprecated) 2.5=0x00025000, 3.0=0x00030000
+     *  4             - fixed              italicAngle         Italic angle in counter-clockwise degrees from the vertical.
+     *                                                         Zero for upright text, negative for text that leans to the right
+     *  8             - FWORD              underlinePosition   Suggested y-coordinate of the top of the underline
+     * 10             - FWORD              underlineThickness  Suggested values for the underline thickness
+     * 12             - uint32             isFixedPitch        0 if the font is proportionally spaced, non-zero if monospaced
+     * 16             - uint32             minMemType42        Minimum memory usage when an OpenType font is downloaded
+     * 20             - uint32             maxMemType42        Maximum memory usage when an OpenType font is downloaded
+     * 24             - uint32             minMemType1         Minimum memory usage when OpenType font is downloaded as a Type 1 font
+     * 28             - uint32             maxMemType1         Maximum memory usage when OpenType font is downloaded as a Type 1 font
      *
+     * Version 2.0 (continuation of Postscript Table Header):
+     * 32             - uint16             numGlyphs           Number of glyphs (this should be the same as numGlyphs in 'maxp' table)
+     * 34             - uint16[numGlyphs]  glyphNameIndex      Array of indices into the string data.  For id values 0-257, use the
+     *                                                         standard Macintosh glyph name for that id.  For values > 257, use
+     *                                                         (258-<id value>) as the index into stringData.
+     * 34+2*numGlyphs - uint8[]            stringData          Storage for the string data.  Data is stored in Pascal string format,
+     *                                                         meaning that the first byte of a given string is a length: the number
+     *                                                         of characters in that string. The length byte is not included; for
+     *                                                         example, a length byte of 8 indicates that the 8 bytes following the
+     *                                                         length byte comprise the string character data.  Valid characters are
+     *                                                         in the set [A-Za-z0-9._]
      * @return void
+     *
+     * @throws FontException
      */
     protected function getPostData(): void
     {
-        $this->offset = $this->fdt['table']['post']['offset'];
-        $this->offset += 4; // skip Format Type
-        $this->fdt['italicAngle'] = $this->fbyte->getFixed($this->offset);
-        $this->offset += 4;
-        $this->fdt['underlinePosition'] = (int) \round($this->fbyte->getFWord($this->offset) * $this->fdt['urk']);
-        $this->offset += 2;
-        $this->fdt['underlineThickness'] = (int) \round($this->fbyte->getFWord($this->offset) * $this->fdt['urk']);
-        $this->offset += 2;
-        $isFixedPitch = ($this->fbyte->getULong($this->offset) != 0);
-        $this->offset += 2;
+        $offset_file = $this->fdt['table']['post']['offset'];
+
+        $versionMajor = $this->fbyte->getUShort($offset_file);
+        $versionMinor = $this->fbyte->getUShort($offset_file + 2);
+
+        $this->fdt['italicAngle'] = $this->fbyte->getFixed($offset_file + 4);
+        $this->fdt['underlinePosition'] = (int) \round($this->fbyte->getFWord($offset_file + 8) * $this->fdt['urk']);
+        $this->fdt['underlineThickness'] = (int) \round($this->fbyte->getFWord($offset_file + 10) * $this->fdt['urk']);
+        $isFixedPitch = $this->fbyte->getULong($offset_file + 12) !== 0;
         if ($isFixedPitch) {
             $this->fdt['Flags'] |= 1;
+        }
+
+        // Return early if this is not a debug font subset.
+        if (!$this->subsetMode->debug()) {
+            return;
+        }
+
+        if ($versionMajor === 2 && $versionMinor === 0) {
+            $offset_subtable_v2 = $offset_file + 32;
+
+            $numGlyphs = $this->fbyte->getUShort($offset_subtable_v2);
+
+            $offset_stringData = $offset_subtable_v2 + 2 + 2 * $numGlyphs;
+            $glyphNames = [];
+            if (
+                // Postscript names are Pascal formatted strings meaning they start with a length byte (1-63 characters)
+                // followed by the string with a length matching the length byte.  These postscript names are limited
+                // to [A-Za-z0-9_.] in preg character class format.
+                \preg_match_all(
+                    '/[\x01-\x63]([A-Za-z0-9_.]+)/',
+                    \substr(
+                        $this->font,
+                        $offset_stringData,
+                        $this->fdt['table']['post']['length'] - (34 + 2 * $numGlyphs),
+                    ),
+                    $glyphNames,
+                )
+            ) {
+                $glyphNames = $glyphNames[1];
+            }
+
+            // Add the standard postscript character ids (id < 258) or entity names (id >= 258)
+            $glyphNameIndex = \unpack("n$numGlyphs", \substr($this->font, $offset_subtable_v2 + 2, 2 * $numGlyphs));
+            if ($glyphNameIndex === false) {
+                throw new FontException('Error unpacking glyph name index data.');
+            }
+            // array_values resets the keys to start with 0 instead of 1
+            $glyphNameIndex = \array_values($glyphNameIndex);
+            /** @var list<int|string> $glyphNameIndex */
+            for ($i = 0; $i < \count($glyphNameIndex); $i++) {
+                if ($glyphNameIndex[$i] >= 258) {
+                    $glyphNameIndex[$i] = $glyphNames[((int) $glyphNameIndex[$i]) - 258];
+                }
+            }
+            $this->fdt['postscriptGlyphNames'] = $glyphNameIndex;
         }
     }
 
     /**
      * Get the Horizontal Header Table (TTF hhea table)
-     *
-     *  0 - uint16      majorVersion                     hhea Major version
-     *  2 - uint16      minorVersion                     hhea Minor version
+     *  0 - uint16      majorVersion                     hhea Major version (Always 1)
+     *  2 - uint16      minorVersion                     hhea Minor version (Always 0)
      *  4 - FWORD       ascender
      *  6 - FWORD       descender
      *  8 - FWORD       lineGap
@@ -627,43 +720,40 @@ class TrueType
      */
     protected function getHheaData(): void
     {
-        // ---------- get hhea data ----------
-        $this->offset = $this->fdt['table']['hhea']['offset'];
-        $this->offset += 4; // skip Table version number
+        $offset_file = $this->fdt['table']['hhea']['offset'];
+
+        // skip majorVersion and minorVersion fields (They are always 1 and 0)
+
         // Ascender
-        $this->fdt['Ascent'] = (int) \round($this->fbyte->getFWord($this->offset) * $this->fdt['urk']);
-        $this->offset += 2;
+        $this->fdt['Ascent'] = (int) \round($this->fbyte->getFWord($offset_file + 4) * $this->fdt['urk']);
         // Descender
-        $this->fdt['Descent'] = (int) \round($this->fbyte->getFWord($this->offset) * $this->fdt['urk']);
-        $this->offset += 2;
+        $this->fdt['Descent'] = (int) \round($this->fbyte->getFWord($offset_file + 6) * $this->fdt['urk']);
         // LineGap
-        $this->fdt['Leading'] = (int) \round($this->fbyte->getFWord($this->offset) * $this->fdt['urk']);
-        $this->offset += 2;
+        $this->fdt['Leading'] = (int) \round($this->fbyte->getFWord($offset_file + 8) * $this->fdt['urk']);
         // advanceWidthMax
-        $this->fdt['MaxWidth'] = (int) \round($this->fbyte->getUFWord($this->offset) * $this->fdt['urk']);
-        $this->offset += 2;
+        $this->fdt['MaxWidth'] = (int) \round($this->fbyte->getUFWord($offset_file + 10) * $this->fdt['urk']);
 
         // skip several fields...
-        $this->offset += 22;
 
-        // get the number of hMetric entries in hmtx table
-        $this->fdt['numHMetrics'] = $this->fbyte->getUShort($this->offset);
+        // Number of hMetric entries in hmtx table
+        $this->fdt['numHMetrics'] = $this->fbyte->getUShort($offset_file + 34);
     }
 
     /**
      * Get the Maximum Profile Table (TTF maxp table)
+     *  0 - Version16Dot16  version          Table version number (0.5=0x00005000, 1.0=0x00010000)
+     *  4 - uint16          numGlyphs        The number of glyphs in the font
+     *
+     * ... There are additional fields in Table Version 1.0...
      *
      * @return void
      */
     protected function getMaxpData(): void
     {
-        $this->offset = $this->fdt['table']['maxp']['offset'];
+        $offset_file = $this->fdt['table']['maxp']['offset'];
 
-        // Skip the Table version number (Version16Dot16 = 4 bytes).
-        $this->offset += 4;
-
-        // get the the number of glyphs in the font.
-        $this->fdt['numGlyphs'] = $this->fbyte->getUShort($this->offset);
+        // get the number of glyphs in the font.
+        $this->fdt['numGlyphs'] = $this->fbyte->getUShort($offset_file + 4);
     }
 
     /**
@@ -673,33 +763,23 @@ class TrueType
      */
     protected function getHeights(): void
     {
-        // get xHeight (height of x)
-        $this->fdt['XHeight'] = ($this->fdt['Ascent'] + $this->fdt['Descent']);
-        if (! empty($this->fdt['ctgdata'][120])) {
-            $this->offset = (
-                $this->fdt['table']['glyf']['offset']
-                + $this->fdt['indexToLoc'][$this->fdt['ctgdata'][120]]
-                + 4
-            );
-            $yMin = $this->fbyte->getFWord($this->offset);
-            $this->offset += 4;
-            $yMax = $this->fbyte->getFWord($this->offset);
-            $this->offset += 2;
+        // get xHeight (Height of Latin Small Letter 'x')
+        $this->fdt['XHeight'] = $this->fdt['Ascent'] + $this->fdt['Descent'];
+        if (!empty($this->fdt['ctgdata'][120])) {
+            $offset_file =
+                $this->fdt['table']['glyf']['offset'] + $this->fdt['indexToLoc'][$this->fdt['ctgdata'][120]] + 4;
+            $yMin = $this->fbyte->getFWord($offset_file);
+            $yMax = $this->fbyte->getFWord($offset_file + 4);
             $this->fdt['XHeight'] = (int) \round(($yMax - $yMin) * $this->fdt['urk']);
         }
 
-        // get CapHeight (height of H)
+        // get CapHeight (Height of Latin Capital Letter 'H')
         $this->fdt['CapHeight'] = (int) $this->fdt['Ascent'];
-        if (! empty($this->fdt['ctgdata'][72])) {
-            $this->offset = (
-                $this->fdt['table']['glyf']['offset']
-                + $this->fdt['indexToLoc'][$this->fdt['ctgdata'][72]]
-                + 4
-            );
-            $yMin = $this->fbyte->getFWord($this->offset);
-            $this->offset += 4;
-            $yMax = $this->fbyte->getFWord($this->offset);
-            $this->offset += 2;
+        if (!empty($this->fdt['ctgdata'][72])) {
+            $offset_file =
+                $this->fdt['table']['glyf']['offset'] + $this->fdt['indexToLoc'][$this->fdt['ctgdata'][72]] + 4;
+            $yMin = $this->fbyte->getFWord($offset_file);
+            $yMax = $this->fbyte->getFWord($offset_file + 4);
             $this->fdt['CapHeight'] = (int) \round(($yMax - $yMin) * $this->fdt['urk']);
         }
     }
@@ -711,39 +791,90 @@ class TrueType
      */
     protected function getWidths(): void
     {
-        // create widths array
-        $chw = [];
-        $this->offset = $this->fdt['table']['hmtx']['offset'];
-        for ($i = 0; $i < $this->fdt['numHMetrics']; ++$i) {
-            $chw[$i] = (int) \round($this->fbyte->getUFWord($this->offset) * $this->fdt['urk']);
-            $this->offset += 4; // skip lsb
+        $offset_file = $this->fdt['table']['hmtx']['offset'];
+
+        // Skip getting widths for subsetting mode. The Subset class will reuse the data from the import process
+        // instead of calculating it all again.
+        if ($this->subsetMode !== SubsetMode::OFF) {
+            return;
         }
 
-        if ($this->fdt['numHMetrics'] < $this->fdt['numGlyphs']) {
-            // fill missing widths with the last value
-            $chw = \array_pad($chw, $this->fdt['numGlyphs'], $chw[($this->fdt['numHMetrics'] - 1)]);
+        // Create character widths array when importing a font (SubsetMode::OFF)
+        $chw = [];
+        for ($i = 0; $i < $this->fdt['numHMetrics']; $i++) {
+            // hMetrics are needed for subsetting
+            $this->fdt['tableSubset']['hmtx']['hMetrics'][$i] = [
+                // advanceWidth
+                (($this->fbyte->bytes[$offset_file] << 8) & 0xff00) | ($this->fbyte->bytes[$offset_file + 1] & 0xff),
+                // lsb
+                (int) \round(
+                    (((($this->fbyte->bytes[$offset_file + 2] << 8) & 0xff00) |
+                        ($this->fbyte->bytes[$offset_file + 3] & 0xff)) ^
+                        0x8000) -
+                        0x8000,
+                ),
+            ];
+            // Character width is advanceWidth * urk
+            $chw[$i] = (int) \round($this->fdt['tableSubset']['hmtx']['hMetrics'][$i][0] * $this->fdt['urk']);
+
+            // Increment offset by size of each loop item in bytes
+            $offset_file += 4;
+        }
+
+        $lastIndex = $this->fdt['numHMetrics'] - 1;
+        // fill missing widths with the last value
+        $chw = \array_pad($chw, $this->fdt['numGlyphs'], $chw[$lastIndex]);
+
+        $numRemain = $this->fdt['numGlyphs'] - $this->fdt['numHMetrics'];
+        if ($numRemain > 0) {
+            $data = \unpack("n$numRemain", \substr($this->font, $offset_file, 2 * $numRemain));
+            if ($data !== false) {
+                // array_values resets the keys to start with 0 instead of 1
+                $data = \array_values($data);
+                // Tell phpstan that $data is an int[] after unpacking... not sure why it does not infer this already
+                /** @var list<int> $data */
+                $this->fdt['tableSubset']['hmtx']['lsbOnly'] = $data;
+            }
         }
 
         $this->fdt['MissingWidth'] = $chw[0];
         $this->fdt['cw'] = [];
         $this->fdt['cbbox'] = [];
-        for ($cid = 0; $cid <= 65535; ++$cid) {
-            if (isset($this->fdt['ctgdata'][$cid])) {
-                if (isset($chw[$this->fdt['ctgdata'][$cid]])) {
-                    $this->fdt['cw'][$cid] = $chw[$this->fdt['ctgdata'][$cid]];
-                }
+        for ($cid = 0; $cid <= 65535; $cid++) {
+            if (!isset($this->fdt['ctgdata'][$cid])) {
+                continue;
+            }
+            if (isset($chw[$this->fdt['ctgdata'][$cid]])) {
+                $this->fdt['cw'][$cid] = $chw[$this->fdt['ctgdata'][$cid]];
+            }
 
-                if (isset($this->fdt['indexToLoc'][$this->fdt['ctgdata'][$cid]])) {
-                    $this->offset = (
-                        $this->fdt['table']['glyf']['offset']
-                        + $this->fdt['indexToLoc'][$this->fdt['ctgdata'][$cid]]
-                    );
-                    $xMin = (int) \round($this->fbyte->getFWord($this->offset + 2) * $this->fdt['urk']);
-                    $yMin = (int) \round($this->fbyte->getFWord($this->offset + 4) * $this->fdt['urk']);
-                    $xMax = (int) \round($this->fbyte->getFWord($this->offset + 6) * $this->fdt['urk']);
-                    $yMax = (int) \round($this->fbyte->getFWord($this->offset + 8) * $this->fdt['urk']);
-                    $this->fdt['cbbox'][$cid] = [$xMin, $yMin, $xMax, $yMax];
-                }
+            if (isset($this->fdt['indexToLoc'][$this->fdt['ctgdata'][$cid]])) {
+                $offset_file =
+                    $this->fdt['table']['glyf']['offset'] + $this->fdt['indexToLoc'][$this->fdt['ctgdata'][$cid]];
+
+                // The int16 conversion is inlined here to optimize the loop
+                $this->fdt['cbbox'][$cid] = [
+                    (int) ($this->fdt['urk'] *
+                        ((((($this->fbyte->bytes[$offset_file + 2] << 8) & 0xff00) |
+                            ($this->fbyte->bytes[$offset_file + 3] & 0xff)) ^
+                            0x8000) -
+                            0x8000)),
+                    (int) ($this->fdt['urk'] *
+                        ((((($this->fbyte->bytes[$offset_file + 4] << 8) & 0xff00) |
+                            ($this->fbyte->bytes[$offset_file + 5] & 0xff)) ^
+                            0x8000) -
+                            0x8000)),
+                    (int) ($this->fdt['urk'] *
+                        ((((($this->fbyte->bytes[$offset_file + 6] << 8) & 0xff00) |
+                            ($this->fbyte->bytes[$offset_file + 7] & 0xff)) ^
+                            0x8000) -
+                            0x8000)),
+                    (int) ($this->fdt['urk'] *
+                        ((((($this->fbyte->bytes[$offset_file + 8] << 8) & 0xff00) |
+                            ($this->fbyte->bytes[$offset_file + 9] & 0xff)) ^
+                            0x8000) -
+                            0x8000)),
+                ];
             }
         }
     }
@@ -760,7 +891,7 @@ class TrueType
     {
         $this->fdt['ctgdata'][$cid] = $gid;
         if (isset($this->subchars[$cid])) {
-            $this->subglyphs[$gid] = true;
+            $this->subglyphs[$gid] = $cid;
         }
     }
 
@@ -775,30 +906,28 @@ class TrueType
      * @return void
      *
      * @throws FontException
-     *
-     * @SuppressWarnings("PHPMD.CyclomaticComplexity")
      */
     protected function getCIDToGIDMap(): void
     {
         $this->fdt['ctgdata'] = [];
+
+        $desiredEncoding = [$this->fdt['platform_id'], $this->fdt['encoding_id']];
         foreach ($this->fdt['encodingTables'] as $enctable) {
             // get only specified Platform ID and Encoding ID
-            if (
-                ($enctable['platformID'] == $this->fdt['platform_id'])
-                && ($enctable['encodingID'] == $this->fdt['encoding_id'])
-            ) {
-                $this->offset = ($this->fdt['table']['cmap']['offset'] + $enctable['offset']);
-                $format = $this->fbyte->getUShort($this->offset);
-                $this->offset += 2;
+            if ([$enctable['platformId'], $enctable['encodingId']] === $desiredEncoding) {
+                $offset_file = $this->fdt['table']['cmap']['offset'] + $enctable['offset'];
+                $format = $this->fbyte->getUShort($offset_file);
+
                 match ($format) {
-                    0 => $this->processFormat0(),
-                    2 => $this->processFormat2(),
-                    4 => $this->processFormat4(),
-                    6 => $this->processFormat6(),
-                    8 => $this->processFormat8(),
-                    10 => $this->processFormat10(),
-                    12 => $this->processFormat12(),
-                    13 => $this->processFormat13(),
+                    0 => $this->processFormat0($offset_file),
+                    2 => $this->processFormat2($offset_file),
+                    4 => $this->processFormat4($offset_file),
+                    6 => $this->processFormat6($offset_file),
+                    8 => $this->processFormat8($offset_file),
+                    10 => $this->processFormat10($offset_file),
+                    12 => $this->processFormat12($offset_file),
+                    13 => $this->processFormat13($offset_file),
+                    // Unimplemented stub function for format 14
                     14 => $this->processFormat14(),
                     default => throw new FontException('Unsupported cmap format: ' . $format),
                 };
@@ -806,94 +935,99 @@ class TrueType
         }
 
         // Glyph 0 is the .notdef glyph used when the font does not contain a glyph for a character
-        if (! isset($this->fdt['ctgdata'][0])) {
+        if (!isset($this->fdt['ctgdata'][0])) {
             $this->fdt['ctgdata'][0] = 0;
         }
 
-        if ($this->fdt['type'] != 'TrueTypeUnicode') {
-            return;
+        // Plain TTF (not TrueTypeUnicode) have exactly 256 characters
+        if ($this->fdt['type'] == 'TrueTypeUnicode' && \count($this->fdt['ctgdata']) == 256) {
+            $this->fdt['type'] = 'TrueType';
         }
-
-        if (\count($this->fdt['ctgdata']) != 256) {
-            return;
-        }
-
-        $this->fdt['type'] = 'TrueType';
     }
 
     /**
      * Process Format 0: Byte encoding table
-     *  0 - uint16      format              (unused) Always 0 for subtable format 0
-     *  2 - uint16      length              (unused) The length of the subtable in bytes
-     *  4 - uint16      language            (unused)
-     *  6 - unit8[256]  glyphIdArray        An array that maps character codes to glyph index values.
+     *  0 - uint16        format              (unused) Always 0 for subtable format 0
+     *  2 - uint16        length              (unused) The length of the subtable in bytes
+     *  4 - uint16        language            (unused)
+     *  6 - unit8[256]    glyphIdArray        An array that maps character codes to glyph index values.
      */
-    protected function processFormat0(): void
+    protected function processFormat0(int $offset_file): void
     {
-        $this->offset += 4; // skip length and version/language
-        for ($chr = 0; $chr < 256; ++$chr) {
-            $gid = $this->fbyte->getByte($this->offset);
+        // uint8 glyphIdArray starts at byte-offset 6
+        $offset_loop = $offset_file + 6;
+        for ($chr = 0; $chr < 256; $chr++) {
+            $gid = $this->fbyte->getByte($offset_loop);
             $this->addCtgItem($chr, $gid);
-            ++$this->offset;
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 1;
         }
     }
 
     /**
      * Process Format 2: High-byte mapping through table
-     *   0 - uint16          format         (unused) Always 2 for subtable format 2
-     *   2 - uint16          length         (unused) The length of the subtable in bytes
-     *   4 - uint16          language       (unused)
-     *   6 - uint16[256]     subHeaderKeys  Array mapping high bytes into the subHeaders array: value is subHeaders index × 8
-     * 518 - SubHeader[]     subHeaders     Array of SubHeader records
-     *     - unit16[]        glyphIdArray   Array containing sub-arrays used for mapping the low byte of 2-byte character
+     *   0 - uint16        format         (unused) Always 2 for subtable format 2
+     *   2 - uint16        length         (unused) The length of the subtable in bytes
+     *   4 - uint16        language       (unused)
+     *   6 - uint16[256]   subHeaderKeys  Array mapping high bytes into the subHeaders array: value is subHeaders index × 8
+     * 518 - SubHeader[]   subHeaders     Array of SubHeader records
+     *     - unit16[]      glyphIdArray   Array containing sub-arrays used for mapping the low byte of 2-byte character
      *
      * SubHeader Record (8 bytes):
-     *   0 - uint16          firstCode      First valid low byte for this SubHeader
-     *   2 - uint16          entryCount     Number of valid low bytes for this SubHeader
-     *   4 - int16           idDelta
-     *   6 - unit16          idRangeOffset
+     *   0 - uint16        firstCode      First valid low byte for this SubHeader
+     *   2 - uint16        entryCount     Number of valid low bytes for this SubHeader
+     *   4 - int16         idDelta
+     *   6 - unit16        idRangeOffset
      */
-    protected function processFormat2(): void
+    protected function processFormat2(int $offset_file): void
     {
-        $this->offset += 4; // skip length and version/language
-        $numSubHeaders = 0;
-        for ($chr = 0; $chr < 256; ++$chr) {
+        // subHeaderKeys array starts at byte-offset: 6
+        $offset_loop = $offset_file + 6;
+        // Find subHeaderKeys
+        for ($i = 0; $i < 256; $i++) {
             // Array that maps high bytes to subHeaders: value is subHeader index * 8.
-            $subHeaderKeys[$chr] = ($this->fbyte->getUShort($this->offset) / 8);
-            $this->offset += 2;
-            if ($numSubHeaders < $subHeaderKeys[$chr]) {
-                $numSubHeaders = $subHeaderKeys[$chr];
-            }
-        }
+            $subHeaderKeys[$i] = $this->fbyte->getUShort($offset_loop) >> 3;
 
-        // the number of subHeaders is equal to the max of subHeaderKeys + 1
-        ++$numSubHeaders;
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 2;
+        }
+        // the number of subHeaders is equal to the max of subHeaderKeys + 1 because 0 is also an index
+        $numSubHeaders = \max($subHeaderKeys) + 1;
+
+        // SubHeader Records start at byte-offset: 518
+        $offset_loop = $offset_file + 518;
         // read subHeader structures
         $subHeaders = [];
         $numGlyphIndexArray = 0;
-        for ($ish = 0; $ish < $numSubHeaders; ++$ish) {
-            $subHeaders[$ish]['firstCode'] = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
-            $subHeaders[$ish]['entryCount'] = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
-            $subHeaders[$ish]['idDelta'] = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
-            $subHeaders[$ish]['idRangeOffset'] = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
-            $subHeaders[$ish]['idRangeOffset'] -= (2 + (($numSubHeaders - $ish - 1) * 8));
-            $subHeaders[$ish]['idRangeOffset'] /= 2;
-            $numGlyphIndexArray += $subHeaders[$ish]['entryCount'];
+        for ($i = 0; $i < $numSubHeaders; $i++) {
+            $subHeaders[$i]['firstCode'] = $this->fbyte->getUShort($offset_loop);
+            $subHeaders[$i]['entryCount'] = $this->fbyte->getUShort($offset_loop + 2);
+            $subHeaders[$i]['idDelta'] = $this->fbyte->getUShort($offset_loop + 4);
+            $subHeaders[$i]['idRangeOffset'] = $this->fbyte->getUShort($offset_loop + 6);
+
+            $subHeaders[$i]['idRangeOffset'] -= 2 + ($numSubHeaders - $i - 1) * 8;
+            $subHeaders[$i]['idRangeOffset'] /= 2;
+            $subHeaders[$i]['idRangeOffset'] = (int) $subHeaders[$i]['idRangeOffset'];
+            $numGlyphIndexArray += $subHeaders[$i]['entryCount'];
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 8;
         }
 
-        $glyphIndexArray = [
-            0 => 0,
-        ];
-        for ($gid = 0; $gid < $numGlyphIndexArray; ++$gid) {
-            $glyphIndexArray[$gid] = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
+        // GlyphId array starts at byte-offset: 518 + numSubHeaders * 8
+        $offset_loop = $offset_file + 518 + $numSubHeaders * 8;
+        // Read glyphIdArray
+        $glyphIndexArray = [0 => 0];
+        for ($i = 0; $i < $numGlyphIndexArray; $i++) {
+            $glyphIndexArray[$i] = $this->fbyte->getUShort($offset_loop);
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 2;
         }
 
-        for ($chr = 0; $chr < 256; ++$chr) {
+        // Create mapping using the information read from font file above
+        for ($chr = 0; $chr < 256; $chr++) {
             $shk = $subHeaderKeys[$chr];
             if ($shk == 0) {
                 // one byte code
@@ -901,14 +1035,17 @@ class TrueType
                 $gid = $glyphIndexArray[0];
                 $this->addCtgItem($cdx, $gid);
             } else {
+                if (!isset($subHeaders[$shk])) {
+                    throw new FontException("CMap type 2 subheader #$shk is not valid.");
+                }
                 // two bytes code
                 $start_byte = $subHeaders[$shk]['firstCode'];
                 $end_byte = $start_byte + $subHeaders[$shk]['entryCount'];
-                for ($jdx = $start_byte; $jdx < $end_byte; ++$jdx) {
+                for ($jdx = $start_byte; $jdx < $end_byte; $jdx++) {
                     // combine high and low bytes
-                    $cdx = (($chr << 8) + $jdx);
-                    $idRangeOffset = ($subHeaders[$shk]['idRangeOffset'] + $jdx - $subHeaders[$shk]['firstCode']);
-                    $gid = \max(0, (($glyphIndexArray[$idRangeOffset] + $subHeaders[$shk]['idDelta']) % 65536));
+                    $cdx = ($chr << 8) + $jdx;
+                    $idRangeOffset = $subHeaders[$shk]['idRangeOffset'] + $jdx - $subHeaders[$shk]['firstCode'];
+                    $gid = \max(0, ($glyphIndexArray[$idRangeOffset] + $subHeaders[$shk]['idDelta']) % 65536);
                     $this->addCtgItem($cdx, $gid);
                 }
             }
@@ -917,67 +1054,89 @@ class TrueType
 
     /**
      * Process Format 4: Segment mapping to delta values
-     *   0            - uint16              format         (unused) Always 4 for subtable format 4
-     *   2            - uint16              length         The length of the subtable in bytes
-     *   4            - uint16              language       (unused)
-     *   6            - uint16              segCountX2     2 × segCount
-     *   8            - uint16              searchRange    pow(2, floor(log2(segCount))) * 2 OR 1 << (entrySelector+1)
-     *  10            - uint16              entrySelector  floor(log2(segCount)))
-     *  12            - uint16              rangeShift     segCount * 2 - searchRange
-     *  14            - unit16[segCount]    endCode        End characterCode for each segment; last segment = 0xFFFF
-     *  14+2*segCount - uint16              reservedPad    Always 0
-     *  16+2*segCount - uint16[segCount]    startCode      Start characterCode for each segment; last segment = 0xFFFF
-     *  16+4*segCount - int16[segCount]     idDelta        Delta for all character codes in segment
-     *  16+6*segCount - uint16[segCount]    idRangeOffset  Offsets into glyphIdArray or 0
-     *  16+8*segCount - uint16[]            glyphIdArray   Glyph index array (arbitrary length)
+     *   0            - uint16             format         (unused) Always 4 for subtable format 4
+     *   2            - uint16             length         The length of the subtable in bytes
+     *   4            - uint16             language       (unused)
+     *   6            - uint16             segCountX2     2 × segCount
+     *   8            - uint16             searchRange    pow(2, floor(log2(segCount))) * 2 OR 1 << (entrySelector+1)
+     *  10            - uint16             entrySelector  floor(log2(segCount)))
+     *  12            - uint16             rangeShift     segCount * 2 - searchRange
+     *  14            - unit16[segCount]   endCode        End characterCode for each segment; last segment = 0xFFFF
+     *  14+2*segCount - uint16             reservedPad    Always 0
+     *  16+2*segCount - uint16[segCount]   startCode      Start characterCode for each segment; last segment = 0xFFFF
+     *  16+4*segCount - int16[segCount]    idDelta        Delta for all character codes in segment
+     *  16+6*segCount - uint16[segCount]   idRangeOffset  Offsets into glyphIdArray or 0
+     *  16+8*segCount - uint16[]           glyphIdArray   Glyph index array (arbitrary length)
      */
-    protected function processFormat4(): void
+    protected function processFormat4(int $offset_file): void
     {
-        $length = $this->fbyte->getUShort($this->offset);
-        $this->offset += 2;
-        $this->offset += 2; // skip version/language
-        $segCount = \floor($this->fbyte->getUShort($this->offset) / 2);
-        $this->offset += 2;
-        $this->offset += 6; // skip searchRange, entrySelector, rangeShift
-        $endCount = []; // array of end character codes for each segment
-        for ($kdx = 0; $kdx < $segCount; ++$kdx) {
-            $endCount[$kdx] = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
+        $length = $this->fbyte->getUShort($offset_file + 2);
+        $segCount = (int) \floor($this->fbyte->getUShort($offset_file + 6) / 2);
+
+        // endCode array starts at byte-offset: 14
+        $offset_loop = $offset_file + 14;
+        // array of end character codes for each segment
+        $endCount = [];
+        for ($i = 0; $i < $segCount; $i++) {
+            $endCount[$i] = $this->fbyte->getUShort($offset_loop);
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 2;
         }
 
-        $this->offset += 2; // skip reservedPad
-        $startCount = []; // array of start character codes for each segment
-        for ($kdx = 0; $kdx < $segCount; ++$kdx) {
-            $startCount[$kdx] = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
+        // startCode array starts at byte-offset: 16 + 2 * segCount
+        $offset_loop = $offset_file + 16 + 2 * $segCount;
+        // array of start character codes for each segment
+        $startCount = [];
+        for ($i = 0; $i < $segCount; $i++) {
+            $startCount[$i] = $this->fbyte->getUShort($offset_loop);
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 2;
         }
 
-        $idDelta = []; // delta for all character codes in segment
-        for ($kdx = 0; $kdx < $segCount; ++$kdx) {
-            $idDelta[$kdx] = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
+        // idDelta array starts at byte-offset: 16 + 4 * segCount
+        $offset_loop = $offset_file + 16 + 4 * $segCount;
+        // delta for all character codes in segment
+        $idDelta = [];
+        for ($i = 0; $i < $segCount; $i++) {
+            $idDelta[$i] = $this->fbyte->getUShort($offset_loop);
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 2;
         }
 
-        $idRangeOffset = []; // Offsets into glyphIdArray or 0
-        for ($kdx = 0; $kdx < $segCount; ++$kdx) {
-            $idRangeOffset[$kdx] = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
+        // idRangeOffset array starts at byte-offset: 16 + 6 * segCount
+        $offset_loop = $offset_file + 16 + 6 * $segCount;
+        // Offsets into glyphIdArray or 0
+        $idRangeOffset = [];
+        for ($kdx = 0; $kdx < $segCount; $kdx++) {
+            $idRangeOffset[$kdx] = $this->fbyte->getUShort($offset_loop);
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 2;
         }
 
-        $gidlen = (\floor($length / 2) - 8 - (4 * $segCount));
-        $glyphIdArray = []; // glyph index array
-        for ($kdx = 0; $kdx < $gidlen; ++$kdx) {
-            $glyphIdArray[$kdx] = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
+        // glyphIdArray starts at byte-offset: 16 + 8 * segCount
+        $offset_loop = $offset_file + 16 + 8 * $segCount;
+        $gidlen = (int) \floor($length / 2) - 8 - 4 * $segCount;
+        // glyph index array
+        $glyphIdArray = [];
+        for ($kdx = 0; $kdx < $gidlen; $kdx++) {
+            $glyphIdArray[$kdx] = $this->fbyte->getUShort($offset_loop);
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 2;
         }
 
-        for ($kdx = 0; $kdx < $segCount; ++$kdx) {
-            for ($chr = $startCount[$kdx]; $chr <= $endCount[$kdx]; ++$chr) {
+        // Create mapping using the information found above
+        for ($kdx = 0; $kdx < $segCount; $kdx++) {
+            for ($chr = $startCount[$kdx]; $chr <= $endCount[$kdx]; $chr++) {
                 if ($idRangeOffset[$kdx] == 0) {
-                    $gid = \max(0, (($idDelta[$kdx] + $chr) % 65536));
+                    $gid = \max(0, ($idDelta[$kdx] + $chr) % 65536);
                 } else {
-                    $gid = (int) (\floor($idRangeOffset[$kdx] / 2) + ($chr - $startCount[$kdx]) - ($segCount - $kdx));
-                    $gid = \max(0, (($glyphIdArray[$gid] + $idDelta[$kdx]) % 65536));
+                    $gid = (int) \floor($idRangeOffset[$kdx] / 2) + ($chr - $startCount[$kdx]) - ($segCount - $kdx);
+                    $gid = \max(0, ($glyphIdArray[$gid] + $idDelta[$kdx]) % 65536);
                 }
 
                 $this->addCtgItem($chr, $gid);
@@ -987,76 +1146,80 @@ class TrueType
 
     /**
      * Process Format 6: Trimmed table mapping
-     *   0 - uint16               format         (unused) Always 6 for subtable format 6
-     *   2 - uint16               length         (unused) The length of the subtable in bytes
-     *   4 - uint16               language       (unused)
-     *   6 - uint16               firstCode      First character code of subrange
-     *   8 - uint16               entryCount     Number of character codes in subrange
-     *  10 - uint16[entryCount]   glyphIdArray   Array of glyph index values for character codes in the range
+     *   0 - uint16             format         (unused) Always 6 for subtable format 6
+     *   2 - uint16             length         (unused) The length of the subtable in bytes
+     *   4 - uint16             language       (unused)
+     *   6 - uint16             firstCode      First character code of subrange
+     *   8 - uint16             entryCount     Number of character codes in subrange
+     *  10 - uint16[entryCount] glyphIdArray   Array of glyph index values for character codes in the range
      */
-    protected function processFormat6(): void
+    protected function processFormat6(int $offset_file): void
     {
-        $this->offset += 4; // skip length and version/language
-        $firstCode = $this->fbyte->getUShort($this->offset);
-        $this->offset += 2;
-        $entryCount = $this->fbyte->getUShort($this->offset);
-        $this->offset += 2;
-        for ($kdx = 0; $kdx < $entryCount; ++$kdx) {
-            $chr = ($kdx + $firstCode);
-            $gid = $this->fbyte->getUShort($this->offset);
-            $this->offset += 2;
+        $firstCode = $this->fbyte->getUShort($offset_file + 6);
+        $entryCount = $this->fbyte->getUShort($offset_file + 8);
+
+        // glyphIdArray starts at byte-offset 10
+        $offset_loop = $offset_file + 10;
+        for ($kdx = 0; $kdx < $entryCount; $kdx++) {
+            $gid = $this->fbyte->getUShort($offset_loop);
+
+            $chr = $kdx + $firstCode;
             $this->addCtgItem($chr, $gid);
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 2;
         }
     }
 
     /**
      * Process Format 8: Mixed 16-bit and 32-bit coverage
-     *  0      - uint16                format         (unused) Always 8 for subtable format 8
-     *  2      - uint16                reserved       (unused) Always 0
-     *  4      - uint32                length         (unused) The length of the subtable in bytes
-     *  8      - uint32                language       (unused)
-     * 12      - uint8[8192]           is32           Bit array indicating a value is the start of a 32-bit character code
-     * 12+8192 - uint32                numGroups      Number of groupings which follow
-     * 16+8192 - MapGroup[numGroups]   glyphIdArray   Array of glyph index values for character codes in the range
+     *  0      - uint16              format         (unused) Always 8 for subtable format 8
+     *  2      - uint16              reserved       (unused) Always 0
+     *  4      - uint32              length         (unused) The length of the subtable in bytes
+     *  8      - uint32              language       (unused)
+     * 12      - uint8[8192]         is32           Bit array indicating a value is the start of a 32-bit character code
+     * 12+8192 - uint32              numGroups      Number of groupings which follow
+     * 16+8192 - MapGroup[numGroups] glyphIdArray   Array of glyph index values for character codes in the range
      *
      * SequentialMapGroup Record (12 bytes):
-     *  0      - uint32                startCharCode  First character code in this group (high byte set to \0 if ia32=0)
-     *  4      - uint32                startCharCode  Last character code in this group (high byte set to \0 if ia32=0)
-     *  8      - uint32                startGlyphID   Glyph index corresponding to the starting character code
+     *  0      - uint32              startCharCode  First character code in this group (high byte set to \0 if ia32=0)
+     *  4      - uint32              startCharCode  Last character code in this group (high byte set to \0 if ia32=0)
+     *  8      - uint32              startGlyphID   Glyph index corresponding to the starting character code
      */
-    protected function processFormat8(): void
+    protected function processFormat8(int $offset_file): void
     {
-        $this->offset += 10; // skip reserved, length and version/language
-        for ($kdx = 0; $kdx < 8192; ++$kdx) {
-            $is32[$kdx] = $this->fbyte->getByte($this->offset);
-            ++$this->offset;
+        // is32 -- This is the bit array indicating if a group (1 << groupIndex) is a 32 bit value
+        $offset_loop = $offset_file + 12;
+        for ($i = 0; $i < 8192; $i++) {
+            $is32[$i] = $this->fbyte->getByte($offset_loop + $i);
         }
 
-        $nGroups = $this->fbyte->getULong($this->offset);
-        $this->offset += 4;
-        for ($idx = 0; $idx < $nGroups; ++$idx) {
-            $startCharCode = $this->fbyte->getULong($this->offset);
-            $this->offset += 4;
-            $endCharCode = $this->fbyte->getULong($this->offset);
-            $this->offset += 4;
-            $startGlyphID = $this->fbyte->getULong($this->offset);
-            $this->offset += 4;
-            for ($cpw = $startCharCode; $cpw <= $endCharCode; ++$cpw) {
+        $nGroups = $this->fbyte->getULong($offset_file + 8204);
+        $offset_loop = $offset_file + 8208;
+        for ($idx = 0; $idx < $nGroups; $idx++) {
+            $startCharCode = $this->fbyte->getULong($offset_loop);
+            $endCharCode = $this->fbyte->getULong($offset_loop + 4);
+            $startGlyphID = $this->fbyte->getULong($offset_loop + 8);
+
+            for ($cpw = $startCharCode; $cpw <= $endCharCode; $cpw++) {
                 $is32idx = (int) \floor($cpw / 8);
-                if ((isset($is32[$is32idx])) && (($is32[$is32idx] & (1 << (7 - ($cpw % 8)))) == 0)) {
+                if (isset($is32[$is32idx]) && ($is32[$is32idx] & (1 << (7 - ($cpw % 8)))) == 0) {
                     $chr = $cpw;
                 } else {
                     // 32 bit format
                     // convert to decimal (http://www.unicode.org/faq//utf_bom.html#utf16-4)
-                    //LEAD_OFFSET = (0xD800 - (0x10000 >> 10)) = 55232
-                    //SURROGATE_OFFSET = (0x10000 - (0xD800 << 10) - 0xDC00) = -56613888
-                    $chr = (((55232 + ($cpw >> 10)) << 10) + (0xDC00 + ($cpw & 0x3FF)) - 56_613_888);
+                    // LEAD_OFFSET = (0xD800 - (0x10000 >> 10)) = 55232
+                    // SURROGATE_OFFSET = (0x10000 - (0xD800 << 10) - 0xDC00) = -56613888
+                    $chr = ((55232 + ($cpw >> 10)) << 10) + (0xdc00 + ($cpw & 0x3ff)) - 56_613_888;
                 }
 
                 $this->addCtgItem($chr, $startGlyphID);
                 $this->fdt['ctgdata'][$chr] = 0; // overwrite
-                ++$startGlyphID;
+                $startGlyphID++;
             }
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 12;
         }
     }
 
@@ -1070,18 +1233,19 @@ class TrueType
      *  16 - uint32     numChars       Number of character codes covered
      *  20 - uint16[]   glyphIdArray   Array of glyph index values for character codes in the range
      */
-    protected function processFormat10(): void
+    protected function processFormat10(int $offset_file): void
     {
-        $this->offset += 10; // skip reserved, length and version/language
-        $startCharCode = $this->fbyte->getULong($this->offset);
-        $this->offset += 4;
-        $numChars = $this->fbyte->getULong($this->offset);
-        $this->offset += 4;
-        for ($kdx = 0; $kdx < $numChars; ++$kdx) {
-            $chr = ($kdx + $startCharCode);
-            $gid = $this->fbyte->getUShort($this->offset);
-            $this->addCtgItem($chr, $gid);
-            $this->offset += 2;
+        $startCharCode = $this->fbyte->getULong($offset_file + 12);
+        $numChars = $this->fbyte->getULong($offset_file + 16);
+
+        // glyphIdArray starts at byte-offset: 20
+        $offset_loop = $offset_file + 20;
+        for ($i = 0; $i < $numChars; $i++) {
+            $gid = $this->fbyte->getUShort($offset_loop);
+            $this->addCtgItem($startCharCode + $i, $gid);
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 2;
         }
     }
 
@@ -1099,22 +1263,24 @@ class TrueType
      *   4 - uint32                         endCharCode    Last character code in this group
      *   8 - uint32                         startGlyphID   Glyph index corresponding to the starting character code
      */
-    protected function processFormat12(): void
+    protected function processFormat12(int $offset_file): void
     {
-        $this->offset += 10; // skip length and version/language
-        $nGroups = $this->fbyte->getULong($this->offset);
-        $this->offset += 4;
-        for ($kdx = 0; $kdx < $nGroups; ++$kdx) {
-            $startCharCode = $this->fbyte->getULong($this->offset);
-            $this->offset += 4;
-            $endCharCode = $this->fbyte->getULong($this->offset);
-            $this->offset += 4;
-            $startGlyphCode = $this->fbyte->getULong($this->offset);
-            $this->offset += 4;
-            for ($chr = $startCharCode; $chr <= $endCharCode; ++$chr) {
+        $nGroups = $this->fbyte->getULong($offset_file + 12);
+
+        // groups start at byte-offset: 16
+        $offset_loop = $offset_file + 16;
+        for ($i = 0; $i < $nGroups; $i++) {
+            $startCharCode = $this->fbyte->getULong($offset_loop);
+            $endCharCode = $this->fbyte->getULong($offset_loop + 4);
+            $startGlyphCode = $this->fbyte->getULong($offset_loop + 8);
+
+            for ($chr = $startCharCode; $chr <= $endCharCode; $chr++) {
                 $this->addCtgItem($chr, $startGlyphCode);
-                ++$startGlyphCode;
+                $startGlyphCode++;
             }
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 12;
         }
     }
 
@@ -1132,8 +1298,24 @@ class TrueType
      *   4 - uint32                         endCharCode    Last character code in this group
      *   8 - uint32                         startGlyphID   Glyph index corresponding to the starting character code
      */
-    protected function processFormat13(): void
+    protected function processFormat13(int $offset_file): void
     {
+        $nGroups = $this->fbyte->getULong($offset_file + 12);
+
+        // groups start at byte-offset: 16
+        $offset_loop = $offset_file + 16;
+        for ($i = 0; $i < $nGroups; $i++) {
+            $startCharCode = $this->fbyte->getULong($offset_loop);
+            $endCharCode = $this->fbyte->getULong($offset_loop + 4);
+            $constantGlyphCode = $this->fbyte->getULong($offset_loop + 8);
+
+            for ($chr = $startCharCode; $chr <= $endCharCode; $chr++) {
+                $this->addCtgItem($chr, $constantGlyphCode);
+            }
+
+            // Increment offset by size of each loop item in bytes
+            $offset_loop += 12;
+        }
     }
 
     /**
@@ -1141,7 +1323,5 @@ class TrueType
      *
      * @TODO: TO BE IMPLEMENTED
      */
-    protected function processFormat14(): void
-    {
-    }
+    protected function processFormat14(): void {}
 }

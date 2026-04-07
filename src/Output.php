@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Output.php
  *
@@ -16,8 +18,10 @@
 
 namespace Com\Tecnick\Pdf\Font;
 
+use Com\Tecnick\File\Compression;
 use Com\Tecnick\File\Exception as FileException;
 use Com\Tecnick\Pdf\Encrypt\Encrypt;
+use Com\Tecnick\Pdf\Encrypt\Exception as EncException;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
 
 /**
@@ -31,14 +35,14 @@ use Com\Tecnick\Pdf\Font\Exception as FontException;
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link      https://github.com/tecnickcom/tc-lib-pdf-font
  *
- * @phpstan-import-type TFontData from Load
+ * @phpstan-import-type TFontData from \Com\Tecnick\Pdf\Font\Load
  */
-class Output extends \Com\Tecnick\Pdf\Font\OutFont
+class Output extends OutFont
 {
     /**
      * Array of character subsets for each font file
      *
-     * @var array<string, array<int, bool>>
+     * @var array<string, array<int, int>>
      */
     protected array $subchars = [];
 
@@ -54,14 +58,12 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
      * @param int                      $pon     Current PDF Object Number
      * @param Encrypt                  $encrypt Encrypt object
      *
+     * @throws EncException
      * @throws FileException
      * @throws FontException
      */
-    public function __construct(
-        protected array $fonts,
-        int $pon,
-        Encrypt $encrypt
-    ) {
+    public function __construct(protected array $fonts, int $pon, Encrypt $encrypt)
+    {
         $this->pon = $pon;
         $this->enc = $encrypt;
 
@@ -99,15 +101,13 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
             return '';
         }
 
-        $out = ' /Font <<';
-
+        $out = ' /Font << ';
         foreach ($data as $font) {
             $out .= ' /F' . $font['i'] . ' ' . $font['n'] . ' 0 R';
         }
 
         return $out . ' >>';
     }
-
 
     /**
      * Get the PDF output string for Font resources dictionary.
@@ -153,13 +153,17 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
         $out = '';
         $done = []; // store processed items to avoid duplication
         foreach ($this->fonts as $fkey => $font) {
-            if (! empty($font['diff'])) {
+            if (!empty($font['diff'])) {
                 $dkey = \md5($font['diff']);
-                if (! isset($done[$dkey])) {
-                    $out .= (++$this->pon) . ' 0 obj' . "\n"
-                        . '<< /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences ['
-                        . $font['diff'] . '] >>' . "\n"
-                        . 'endobj' . "\n";
+                if (!isset($done[$dkey])) {
+                    $this->pon++;
+
+                    $out .= <<<OUT
+                    $this->pon 0 obj
+                    << /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [{$font['diff']}] >>
+                    endobj
+
+                    OUT;
                     $done[$dkey] = $this->pon;
                 }
 
@@ -167,13 +171,11 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
             }
 
             // extract the character subset
-            if (! empty($font['file'])) {
+            if (!empty($font['file'])) {
                 $file_key = \md5($font['file']);
-                if (empty($this->subchars[$file_key])) {
-                    $this->subchars[$file_key] = $font['subsetchars'];
-                } else {
-                    $this->subchars[$file_key] = \array_merge($this->subchars[$file_key], $font['subsetchars']);
-                }
+                $this->subchars[$file_key] = empty($this->subchars[$file_key])
+                    ? $font['subsetchars']
+                    : \array_merge($this->subchars[$file_key], $font['subsetchars']);
             }
         }
 
@@ -185,52 +187,56 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
      *
      * @return string
      *
-     * @throws FileException
+     * @throws EncException
      * @throws FontException
+     * @throws FileException
      */
     protected function getFontFiles(): string
     {
         $out = '';
         $done = []; // store processed items to avoid duplication
         foreach ($this->fonts as $fkey => $font) {
-            if (! empty($font['file'])) {
+            if (!empty($font['file'])) {
                 $dkey = \md5($font['file']);
-                if (! isset($done[$dkey])) {
+
+                if (!isset($done[$dkey])) {
                     $fontfile = $this->getFontFullPath($font['dir'], $font['file']);
                     $font_data = \file_get_contents($fontfile);
                     if ($font_data === false) {
-                        throw new FontException('Unable to read font file: ' . $fontfile);
+                        throw new FontException("Unable to read font file: $fontfile");
                     }
 
                     if ($font['subset']) {
-                        $font_data = \gzuncompress($font_data);
-                        if ($font_data === false) {
-                            throw new FontException('Unable to uncompress font file: ' . $fontfile);
-                        }
+                        $font_data = Compression::uncompress($font_data);
 
-                        $sub = new Subset($font_data, $font, $this->subchars[\md5($font['file'])]);
+                        // Create the font subset binary
+                        $sub = new Subset($font_data, $font, $this->subchars[$dkey]);
                         $font_data = $sub->getSubsetFont();
-                        $font['length1'] = \strlen($font_data);
-                        $font_data = \gzcompress($font_data);
-                        if ($font_data === false) {
-                            throw new FontException('Unable to compress font file: ' . $fontfile);
-                        }
+
+                        // Update the font data
+                        $this->fonts[$fkey] = $sub->getFontData();
+                        $this->fonts[$fkey]['length1'] = \strlen($font_data);
+
+                        // Compress the font
+                        $font_data = Compression::compress($font_data);
                     }
 
-                    ++$this->pon;
-                    $stream = $this->enc->encryptString($font_data, $this->pon);
-                    $out .= $this->pon . ' 0 obj' . "\n"
-                        . '<<'
-                        . ' /Filter /FlateDecode'
-                        . ' /Length ' . \strlen($stream)
-                        . ' /Length1 ' . $font['length1'];
-                    $out .= ' /Length2 ' . $font['length2']
-                        . ' /Length3 0';
+                    $stream = $this->enc->encryptString($font_data, ++$this->pon);
+                    $objSprintf = <<<'OUT'
+                    %1$d 0 obj
+                    << /Filter/FlateDecode /Length %2$d /Length1 %3$d /Length2 %4$d /Length3 0 >> stream
+                    %5$s
+                    endstream
+                    endobj
 
-                    $out .= ' >> stream' . "\n"
-                        . $stream . "\n"
-                        . 'endstream' . "\n"
-                        . 'endobj' . "\n";
+                    OUT;
+                    $out .= vsprintf($objSprintf, [
+                        $this->pon,
+                        \strlen($stream),
+                        $this->fonts[$fkey]['length1'],
+                        $this->fonts[$fkey]['length2'],
+                        $stream,
+                    ]);
                     $done[$dkey] = $this->pon;
                 }
 
@@ -245,16 +251,18 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
      * Get the PDF output string for fonts
      *
      * @return string
+     *
+     * @throws EncException
+     * @throws FontException
      */
     protected function getFontDefinitions(): string
     {
         $out = '';
         foreach ($this->fonts as $font) {
-            $out .= match (\strtolower($font['type'])) {
+            $out = match (\strtolower($font['type'])) {
                 'core' => $this->getCore($font),
                 'cidfont0' => $this->getCid0($font),
-                'type1' => $this->getTrueType($font),
-                'truetype' => $this->getTrueType($font),
+                'type1', 'truetype' => $this->getTrueType($font),
                 'truetypeunicode' => $this->getTrueTypeUnicode($font),
                 default => throw new FontException('Unsupported font type: ' . $font['type']),
             };

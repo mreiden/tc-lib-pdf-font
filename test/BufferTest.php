@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * BufferTest.php
  *
@@ -16,6 +18,11 @@
 
 namespace Test;
 
+use Com\Tecnick\Pdf\Font\Exception as FontException;
+use Com\Tecnick\Pdf\Font\Import;
+use Com\Tecnick\Pdf\Font\Stack;
+use PHPUnit\Framework\Attributes\Test;
+
 /**
  * Buffer Test
  *
@@ -31,153 +38,232 @@ namespace Test;
  */
 class BufferTest extends TestUtil
 {
+    #[Test]
+    public function testStackDefaultSubsetMode(): void
+    {
+        // Default should be false
+        $stack = new Stack(1);
+        $this->assertSame(false, $stack->isSubsetMode());
+
+        // Should match parameter given
+        $stack = new Stack(1, subset: false);
+        $this->assertSame(false, $stack->isSubsetMode());
+        $stack = new Stack(1, subset: true);
+        $this->assertSame(true, $stack->isSubsetMode());
+    }
+
+    #[Test]
     public function testStackMissingKey(): void
     {
-        $this->bcExpectException('\\' . \Com\Tecnick\Pdf\Font\Exception::class);
-        $this->setupTest();
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+        $stack = new Stack(1);
+        $this->expectException(FontException::class);
         $stack->getFont('missing');
     }
 
+    #[Test]
     public function testStackMissingFontName(): void
     {
-        $this->bcExpectException('\\' . \Com\Tecnick\Pdf\Font\Exception::class);
-        $this->setupTest();
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+        $stack = new Stack(1);
         $objnum = 1;
+        $this->expectException(FontException::class);
         $stack->add($objnum, '');
     }
 
+    #[Test]
     public function testStackIFileMissing(): void
     {
-        $this->bcExpectException('\\' . \Com\Tecnick\Pdf\Font\Exception::class);
-        $this->setupTest();
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+        $stack = new Stack(1);
         $objnum = 1;
+        $this->expectException(FontException::class);
         $stack->add($objnum, 'something', '', '/missing/nothere.json');
     }
 
+    #[Test]
     public function testStackIFileNotJson(): void
     {
-        $this->bcExpectException('\\' . \Com\Tecnick\Pdf\Font\Exception::class);
-        $this->setupTest();
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+        $stack = new Stack(1);
         $objnum = 1;
+        $this->expectException(FontException::class);
         $stack->add($objnum, 'something', '', __DIR__ . '/StackTest.php');
     }
 
+    #[Test]
     public function testStackIFileWrongFormat(): void
     {
-        $this->bcExpectException('\\' . \Com\Tecnick\Pdf\Font\Exception::class);
-        $this->setupTest();
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
-        $objnum = 1;
         \file_put_contents($this->getFontPath() . 'badformat.json', '{"bad":"format"}');
+
+        $stack = new Stack(1);
+        $objnum = 1;
+        $this->expectException(FontException::class);
         $stack->add($objnum, 'something', '', $this->getFontPath() . 'badformat.json');
     }
 
-    public function testLoadDeafultWidthA(): void
+    #[Test]
+    public function testLoadFileDoubleDots(): void
     {
-        $this->setupTest();
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+        $stack = new Stack(1);
         $objnum = 1;
+
+        $this->expectException(FontException::class);
+        $stack->add($objnum, 'test', '', $this->getFontPath() . '../test.json');
+    }
+
+    #[Test]
+    public function testLoadFileForbiddenProtocol(): void
+    {
+        $stack = new Stack(1);
+        $objnum = 1;
+
+        $this->expectException(FontException::class);
+        $stack->add($objnum, 'test', '', 'gopher://test.json');
+    }
+
+    #[Test]
+    public function testLoadFileProtocol(): void
+    {
+        $filepath = $this->getFontPath() . 'test.json';
+        \file_put_contents($filepath, '{"type":"Type1","cw":{"0":100}}');
+        $filepath = \realpath($filepath);
+        if ($filepath === false) {
+            throw new \Exception('Failed to read test file: ' . $filepath);
+        }
+        $filepath = \str_replace('\\', '/', $filepath);
+
+        $stack = new Stack(1);
+        $objnum = 1;
+        $stack->add($objnum, 'test', '', 'file://' . $filepath);
+        $font = $stack->getFont('test');
+        $this->assertNotEmpty($font);
+    }
+
+    #[Test]
+    public function testLoadFileProtocolCaseInsensitive(): void
+    {
+        $filepath = $this->getFontPath() . 'test.json';
+        \file_put_contents($filepath, '{"type":"Type1","cw":{"0":100}}');
+        $filepath = \realpath($filepath);
+        if ($filepath === false) {
+            throw new \Exception('Failed to read test file: ' . $filepath);
+        }
+        $filepath = \str_replace('\\', '/', $filepath);
+
+        $stack = new Stack(1);
+        $objnum = 1;
+        $stack->add($objnum, 'test', '', 'FiLe://' . $filepath);
+        $font = $stack->getFont('test');
+        $this->assertNotEmpty($font);
+    }
+
+    #[Test]
+    public function testLoadDefaultWidthA(): void
+    {
         \file_put_contents($this->getFontPath() . 'test.json', '{"type":"Type1","cw":{"0":100}}');
+
+        $stack = new Stack(1);
+        $objnum = 1;
         $stack->add($objnum, 'test', '', $this->getFontPath() . 'test.json');
         $font = $stack->getFont('test');
         $this->assertEquals(600, $font['dw']);
     }
 
-    public function testLoadDeafultWidthB(): void
+    #[Test]
+    public function testLoadDefaultWidthB(): void
     {
-        $this->setupTest();
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
-        $objnum = 1;
         \file_put_contents($this->getFontPath() . 'test.json', '{"type":"Type1","cw":{"32":123}}');
+
+        $stack = new Stack(1);
+        $objnum = 1;
         $stack->add($objnum, 'test', '', $this->getFontPath() . 'test.json');
         $font = $stack->getFont('test');
         $this->assertEquals(123, $font['dw']);
     }
 
-    public function testLoadDeafultWidthC(): void
+    #[Test]
+    public function testLoadDefaultWidthC(): void
     {
-        $this->setupTest();
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
-        $objnum = 1;
         \file_put_contents(
             $this->getFontPath() . 'test.json',
-            '{"type":"Type1","desc":{"MissingWidth":234},"cw":{"0":600}}'
+            '{"type":"Type1","desc":{"MissingWidth":234},"cw":{"0":600}}',
         );
+
+        $stack = new Stack(1);
+        $objnum = 1;
         $stack->add($objnum, 'test', '', $this->getFontPath() . 'test.json');
         $font = $stack->getFont('test');
         $this->assertEquals(234, $font['dw']);
     }
 
+    #[Test]
     public function testLoadWrongType(): void
     {
-        $this->bcExpectException('\\' . \Com\Tecnick\Pdf\Font\Exception::class);
-        $this->setupTest();
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
-        $objnum = 1;
         \file_put_contents($this->getFontPath() . 'test.json', '{"type":"WRONG","cw":{"0":600}}');
+
+        $stack = new Stack(1);
+        $objnum = 1;
+
+        $this->expectException(FontException::class);
         $stack->add($objnum, 'test', '', $this->getFontPath() . 'test.json');
     }
 
+    #[Test]
     public function testLoadCidOnPdfa(): void
     {
-        $this->bcExpectException('\\' . \Com\Tecnick\Pdf\Font\Exception::class);
-        $this->setupTest();
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1, false, true, true);
-        $objnum = 1;
         \file_put_contents($this->getFontPath() . 'test.json', '{"type":"cidfont0","cw":{"0":600}}');
+
+        $stack = new Stack(1, false, true, true);
+        $objnum = 1;
+
+        $this->expectException(FontException::class);
         $stack->add($objnum, 'test', '', $this->getFontPath() . 'test.json', false);
     }
 
+    #[Test]
     public function testLoadArtificialStyles(): void
     {
-        $this->setupTest();
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
-        $objnum = 1;
         \file_put_contents(
             $this->getFontPath() . 'test.json',
-            '{"type":"Core","cw":{"0":600},"mode":{"bold":true,"italic":true}}'
+            '{"fakestyle":true,"type":"Core","cw":{"0":600},"mode":{"bold":true,"italic":true}}',
         );
+
+        $stack = new Stack(1);
+        $objnum = 1;
         $key = $stack->add($objnum, 'symbol', '', $this->getFontPath() . 'test.json');
         $this->assertNotEmpty($key);
     }
 
+    #[Test]
     public function testBuffer(): void
     {
-        $this->setupTest();
         $indir = \dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/';
 
         $objnum = 1;
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1, false, true, false);
+        $stack = new Stack(1, false, true, false);
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'pdfa/pfb/PDFASymbol.pfb', '', 'Type1', 'symbol');
+        new Import($indir . 'pdfa/pfb/PDFASymbol.pfb', '', 'Type1', 'symbol');
         $stack->add($objnum, 'pdfasymbol');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'core/Helvetica.afm');
+        new Import($indir . 'core/Helvetica.afm');
         $stack->add($objnum, 'helvetica');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'core/Helvetica-Bold.afm');
+        new Import($indir . 'core/Helvetica-Bold.afm');
         $stack->add($objnum, 'helvetica', 'B');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'core/Helvetica-BoldOblique.afm');
+        new Import($indir . 'core/Helvetica-BoldOblique.afm');
         $stack->add($objnum, 'helveticaBI');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'core/Helvetica-Oblique.afm');
+        new Import($indir . 'core/Helvetica-Oblique.afm');
         $stack->add($objnum, 'helvetica', 'I');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSans.ttf');
+        new Import($indir . 'freefont/FreeSans.ttf');
         $stack->add($objnum, 'freesans', '');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSansBold.ttf');
+        new Import($indir . 'freefont/FreeSansBold.ttf');
         $stack->add($objnum, 'freesans', 'B');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSansOblique.ttf');
+        new Import($indir . 'freefont/FreeSansOblique.ttf');
         $stack->add($objnum, 'freesans', 'I');
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSansBoldOblique.ttf');
+        new Import($indir . 'freefont/FreeSansBoldOblique.ttf');
         $stack->add($objnum, 'freesans', 'BIUDO', '', true);
 
         $fontkey = $stack->add($objnum, 'freesans', 'BI', '', true);
@@ -192,23 +278,45 @@ class BufferTest extends TestUtil
         $this->assertEquals('FreeSansBold', $font['name']);
         $this->assertEquals('TrueTypeUnicode', $font['type']);
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'core/ZapfDingbats.afm');
+        new Import($indir . 'core/ZapfDingbats.afm');
         $stack->add($objnum, 'zapfdingbats', 'BIUDO');
         $font = $stack->getFont('zapfdingbats');
         $this->assertNotEmpty($font);
     }
 
+    #[Test]
     public function testBufferPdfa(): void
     {
-        $this->setupTest();
         $indir = \dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/';
 
         $objnum = 1;
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1, true, false, true);
+        $stack = new Stack(1, true, false, true);
 
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'pdfa/pfb/PDFAHelveticaBoldOblique.pfb');
+        new Import($indir . 'pdfa/pfb/PDFAHelveticaBoldOblique.pfb');
         $stack->add($objnum, 'arial', 'BIUDO', '', true);
         $font = $stack->getFont('pdfahelveticaBI');
         $this->assertNotEmpty($font);
+    }
+
+    #[Test]
+    public function testSubsetChar(): void
+    {
+        \file_put_contents($this->getFontPath() . 'test.json', '{"type":"Type1","cw":{"0":100}}');
+
+        $stack = new Stack(1);
+        $objnum = 1;
+        $stack->add($objnum, 'test', '', $this->getFontPath() . 'test.json');
+        $font = $stack->getFont('test');
+        $this->assertNotEmpty($font);
+        $stack->addSubsetChar($font['key'], \ord('A'));
+    }
+
+    #[Test]
+    public function testSubsetCharOnNotLoadedFont(): void
+    {
+        $stack = new Stack(1);
+
+        $this->expectException(FontException::class);
+        $stack->addSubsetChar('NotLoadedFont', \ord('A'));
     }
 }
