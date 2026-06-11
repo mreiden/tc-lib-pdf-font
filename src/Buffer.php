@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace Com\Tecnick\Pdf\Font;
 
+use Com\Tecnick\File\File as ObjFile;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
 
 /**
@@ -30,6 +31,14 @@ use Com\Tecnick\Pdf\Font\Exception as FontException;
  * @copyright 2011-2026 Nicola Asuni - Tecnick.com LTD
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link      https://github.com/tecnickcom/tc-lib-pdf-font
+ *
+ * @phpstan-type TFileOptions array{
+ *   allowedHosts?: array<string>,
+ *   maxRemoteSize?: int,
+ *   curlopts?: array<int, bool|int|string>,
+ *   defaultCurlOpts?: array<int, bool|int|string>,
+ *   fixedCurlOpts?: array<int, bool|int|string>
+ * }
  *
  * @phpstan-import-type TFontData from \Com\Tecnick\Pdf\Font\Load
  */
@@ -73,25 +82,36 @@ abstract class Buffer
     protected array $file = [];
 
     /**
+     * Optional file helper forwarded to font loaders.
+     *
+     * @var ObjFile|null
+     */
+    protected ?ObjFile $fileHelper;
+
+    /**
      * Initialize fonts buffer
      *
-     * @param float $kunit   Unit of measure conversion ratio.
-     * @param bool  $subset  If true embed only a subset of the fonts (stores only the information related to
-     *                       the used characters); If false embed full font; This option is valid only for
-     *                       TrueTypeUnicode fonts and is disabled for PDF/A. If you want to enable users to
-     *                       modify the document, set this parameter to false. If you subset the font, the
-     *                       person who receives your PDF would need to have your same font in order to make
-     *                       changes to your PDF. The file size of the PDF would also be smaller because you are
-     *                       embedding only a subset. NOTE: This option is computational and memory intensive.
-     * @param bool  $unicode True if we are in Unicode mode, False otherwise.
-     * @param bool  $pdfa    True if we are in PDF/A mode, False otherwise.
+     * @param float   $kunit   Unit of measure conversion ratio.
+     * @param bool    $subset  If true embed only a subset of the fonts (stores only the information related to
+     *                         the used characters); If false embed full font; This option is valid only for
+     *                         TrueTypeUnicode fonts and is disabled for PDF/A. If you want to enable users to
+     *                         modify the document, set this parameter to false. If you subset the font, the
+     *                         person who receives your PDF would need to have your same font in order to make
+     *                         changes to your PDF. The file size of the PDF would also be smaller because you are
+     *                         embedding only a subset. NOTE: This option is computational and memory intensive.
+     * @param bool    $unicode True if we are in Unicode mode, False otherwise.
+     * @param bool    $pdfa    True if we are in PDF/A mode, False otherwise.
+     * @param ObjFile|null $fileHelper Optional file helper for font loading.
      */
     public function __construct(
         protected float $kunit,
         protected bool $subset = false,
         protected bool $unicode = true,
         protected bool $pdfa = false,
-    ) {}
+        ?ObjFile $fileHelper = null,
+    ) {
+        $this->fileHelper = $fileHelper;
+    }
 
     /**
      * Get the default subset mode
@@ -210,7 +230,7 @@ abstract class Buffer
     ): string {
         $subset ??= $this->subset;
 
-        $fobj = new Font($font, $style, $ifile, $subset, $this->unicode, $this->pdfa);
+        $fobj = new Font($font, $style, $ifile, $subset, $this->unicode, $this->pdfa, true, $this->fileHelper);
         $key = $fobj->getFontkey();
 
         if (isset($this->font[$key])) {
@@ -249,7 +269,7 @@ abstract class Buffer
             'subset' => false,
         ];
 
-        if (!\in_array($key, $this->file[$file]['keys'])) {
+        if (!\in_array($key, $this->file[$file]['keys'], true)) {
             $this->file[$file]['keys'][] = $key;
         }
 

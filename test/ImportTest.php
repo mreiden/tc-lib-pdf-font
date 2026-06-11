@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace Test;
 
+use Com\Tecnick\File\Exception as FileException;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
 use Com\Tecnick\Pdf\Font\Import;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -33,6 +34,8 @@ use PHPUnit\Framework\Attributes\Test;
  * @copyright 2011-2026 Nicola Asuni - Tecnick.com LTD
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link      https://github.com/tecnickcom/tc-lib-pdf-font
+ *
+ * @phpstan-import-type TFontData from \Com\Tecnick\Pdf\Font\Load
  */
 class ImportTest extends TestUtil
 {
@@ -126,6 +129,32 @@ class ImportTest extends TestUtil
 
         $file = \file_get_contents($outdir . $outname . '.json');
         $this->assertNotFalse($file);
+
+        /**
+         * @var array{
+         *     type: mixed,
+         *     name: mixed,
+         *     up: mixed,
+         *     ut: mixed,
+         *     dw: mixed,
+         *     diff: mixed,
+         *     desc: array{
+         *         Flags: mixed,
+         *         FontBBox: mixed,
+         *         ItalicAngle: mixed,
+         *         Ascent: mixed,
+         *         Descent: mixed,
+         *         Leading: mixed,
+         *         CapHeight: mixed,
+         *         XHeight: mixed,
+         *         StemV: mixed,
+         *         StemH: mixed,
+         *         AvgWidth: mixed,
+         *         MaxWidth: mixed,
+         *         MissingWidth: mixed
+         *     }
+         * } $json
+         */
         $json = \json_decode($file, true, 512, JSON_THROW_ON_ERROR);
         $this->assertNotNull($json);
         $this->assertIsArray($json);

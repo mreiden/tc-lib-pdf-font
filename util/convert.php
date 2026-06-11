@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Com\Tecnick\Pdf\Font\Import;
+use Com\Tecnick\File\File;
 
 /**
  * convert.php
@@ -203,6 +204,10 @@ foreach ($inopt as $opt => $val) {
 
 // check input values
 
+if (!is_dir($options['outpath'])) {
+    \mkdir($options['outpath'], 0755, true);
+}
+
 if (!is_dir($options['outpath']) || !\is_writable($options['outpath'])) {
     \fwrite(STDERR, "ERROR: Can not write to {$options['outpath']}\n\n");
     exit(2);
@@ -223,8 +228,23 @@ require_once \dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 foreach ($options['fonts'] as $font) {
     try {
+        $fontFile = realpath($font);
+        if ($fontFile === false) {
+            throw new \Exception('Invalid font file path: ' . $font);
+        }
+
+        $allowedPaths = \array_values(\array_unique(\array_filter(array_map(
+            static fn (string $path): string => rtrim($path, '/\\'),
+            \array_merge(
+                \Com\Tecnick\Pdf\Font\FontPaths::buildAllowedPaths(),
+                [\dirname($fontFile), $options['outpath']]
+            )
+        ))));
+
+        $fileHelper = new File(allowedPaths: $allowedPaths);
+
         $import = new Import(
-            \realpath($font),
+            $fontFile,
             $options['outpath'],
             $options['type'],
             $options['encoding'],
@@ -232,6 +252,7 @@ foreach ($options['fonts'] as $font) {
             $options['platform_id'],
             $options['encoding_id'],
             $options['linked'],
+            $fileHelper
         );
         $fontname = $import->getFontName();
         \fwrite(STDOUT, "\033[32m+++ OK   : $font added as $fontname\033[m\n");

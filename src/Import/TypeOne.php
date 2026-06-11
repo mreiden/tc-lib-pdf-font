@@ -128,7 +128,7 @@ class TypeOne extends Core
         \preg_match('#/ItalicAngle\s*+([0-9+\-]*+)#', $this->font, $matches);
         $this->fdt['italicAngle'] = (int) ($matches[1] ?? 0);
 
-        if ($this->fdt['italicAngle'] != 0) {
+        if ($this->fdt['italicAngle'] !== 0) {
             $this->fdt['Flags'] |= 64;
         }
 
@@ -172,15 +172,15 @@ class TypeOne extends Core
      */
     protected function getEplain(): string
     {
-        $csr = 55665; // eexec encryption constant
-        $cc1 = 52845;
-        $cc2 = 22719;
+        $csr = 55_665; // eexec encryption constant
+        $cc1 = 52_845;
+        $cc2 = 22_719;
         $elen = \strlen($this->fdt['encrypted']);
         $eplain = '';
         for ($idx = 0; $idx < $elen; $idx++) {
             $chr = \ord($this->fdt['encrypted'][$idx]);
             $eplain .= \chr(($chr ^ ($csr >> 8)) & 0xff);
-            $csr = (($chr + $csr) * $cc1 + $cc2) % 65536;
+            $csr = (($chr + $csr) * $cc1 + $cc2) % 65_536;
         }
 
         return $eplain;
@@ -195,11 +195,11 @@ class TypeOne extends Core
     {
         $eplain = $this->getEplain();
         if (\preg_match('#/ForceBold\s*+(\S*+)#', $eplain, $matches) > 0 && $matches[1] == 'true') {
-            $this->fdt['Flags'] |= 0x40000;
+            $this->fdt['Flags'] |= 0x4_0000;
         }
 
         $this->extractStem($eplain);
-        if (\preg_match('#/BlueValues\s*+\[([^]]*+)#', $eplain, $matches) > 0) {
+        if (\preg_match('#/BlueValues\s*+\[([^]]*+)#', $eplain, $matches) === 1) {
             $bvl = \explode(' ', $matches[1]);
             if (\count($bvl) >= 6) {
                 $vl1 = (int) $bvl[2];
@@ -228,9 +228,9 @@ class TypeOne extends Core
             $this->fdt['StemV'] = 70;
         }
 
-        $this->fdt['StemH'] = \preg_match('#/StdHW\s*+\[([^]]*+)#', $eplain, $matches) > 0 ? (int) $matches[1] : 30;
+        $this->fdt['StemH'] = \preg_match('#/StdHW\s*+\[([^]]*+)#', $eplain, $matches) === 1 ? (int) $matches[1] : 30;
 
-        if (\preg_match('#/CapX?Height\s*+\[([^]]*+)#', $eplain, $matches) > 0) {
+        if (\preg_match('#/CapX?Height\s*+\[([^]]*+)#', $eplain, $matches) === 1) {
             $this->fdt['CapHeight'] = (int) $matches[1];
         } else {
             $this->fdt['CapHeight'] = (int) $this->fdt['Ascent'];
@@ -245,7 +245,7 @@ class TypeOne extends Core
     protected function getRandomBytes(string $eplain): void
     {
         $this->fdt['lenIV'] = 4;
-        if (\preg_match('#/lenIV\s*+(\d*+)#', $eplain, $matches) > 0) {
+        if (\preg_match('#/lenIV\s*+(\d*+)#', $eplain, $matches) === 1) {
             $this->fdt['lenIV'] = (int) $matches[1];
         }
     }
@@ -256,8 +256,15 @@ class TypeOne extends Core
     protected function getCharstringData(string $eplain): array
     {
         $this->fdt['enc_map'] = [];
-        $eplain = \substr($eplain, \strpos($eplain, '/CharStrings') + 1);
-        \preg_match_all('#/([A-Za-z0-9.]*+)\s[0-9]+\sRD\s(.*)\sND#sU', $eplain, $matches, PREG_SET_ORDER);
+        $charstringsPos = \strpos($eplain, '/CharStrings');
+        if ($charstringsPos === false) {
+            return [];
+        }
+
+        $eplain = \substr($eplain, $charstringsPos + 1);
+        $matches = [];
+        \preg_match_all('#/([A-Za-z0-9\.]*+)[\s][0-9]+[\s]RD[\s](.*)[\s]ND#sU', $eplain, $matches, PREG_SET_ORDER);
+        /** @var array<int, array<int, string>> $matches */
         if ($this->fdt['enc'] === '') {
             return $matches;
         }
@@ -287,6 +294,7 @@ class TypeOne extends Core
         }
 
         $cid = \array_search($val[1], $this->fdt['enc_map'], true);
+
         if ($cid === false) {
             return 0;
         }
@@ -391,8 +399,8 @@ class TypeOne extends Core
         $imap = $this->getInternalMap();
         $matches = $this->extractEplainInfo();
         $cwidths = [];
-        $cc1 = 52845;
-        $cc2 = 22719;
+        $cc1 = 52_845;
+        $cc2 = 22_719;
         foreach ($matches as $match) {
             $cid = $this->getCid($imap, $match);
             // decrypt charstring encrypted part
@@ -403,7 +411,7 @@ class TypeOne extends Core
             for ($idx = 0; $idx < $clen; $idx++) {
                 $chr = \ord($ccd[$idx]);
                 $ccom[] = $chr ^ ($csr >> 8);
-                $csr = (($chr + $csr) * $cc1 + $cc2) % 65536;
+                $csr = (($chr + $csr) * $cc1 + $cc2) % 65_536;
             }
 
             // decode numbers

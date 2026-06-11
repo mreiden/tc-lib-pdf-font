@@ -31,6 +31,8 @@ use Com\Tecnick\Pdf\Font\Exception as FontException;
  * @copyright 2011-2026 Nicola Asuni - Tecnick.com LTD
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link      https://github.com/tecnickcom/tc-lib-pdf-font
+ *
+ * @phpstan-import-type TFontData from Load
  */
 abstract class OutUtil
 {
@@ -55,7 +57,7 @@ abstract class OutUtil
             $dirobj->findParentDir('fonts', __DIR__),
         ]);
         foreach ($dirs as $dir) {
-            if (@\is_readable("$dir/$file")) {
+            if (\is_readable("$dir/$file")) {
                 return "$dir/$file";
             }
         }

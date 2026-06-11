@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace Test;
 
+use Com\Tecnick\File\Exception as FileException;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
 use Com\Tecnick\Pdf\Font\Import;
 use Com\Tecnick\Pdf\Font\Stack;
@@ -38,6 +39,11 @@ use PHPUnit\Framework\Attributes\Test;
  */
 class StackTest extends TestUtil
 {
+    /**
+     * @throws FileException
+     * @throws FontException
+     * @throws \RangeException
+     */
     #[Test]
     public function testStack(): void
     {
@@ -142,13 +148,15 @@ class StackTest extends TestUtil
         $this->assertEqualsWithDelta(8.76, $widths['totspacewidth'], 0.0001);
         $this->assertEquals(6, $widths['words']);
 
-        $this->assertEquals(11, $widths['split'][5]['pos']);
-        $this->assertEquals(8203, $widths['split'][5]['ord']);
-        $this->assertEquals('BN', $widths['split'][5]['septype']);
-        $this->assertEqualsWithDelta(4.92, $widths['split'][5]['wordwidth'], 0.0001);
-        $this->assertEquals(2, $widths['split'][5]['spaces']);
-        $this->assertEqualsWithDelta(60.9384, $widths['split'][5]['totwidth'], 0.0001);
-        $this->assertEqualsWithDelta(8.76, $widths['split'][5]['totspacewidth'], 0.0001);
+        $split = $widths['split'][5] ?? null;
+        $this->assertIsArray($split);
+        $this->assertEquals(11, $split['pos']);
+        $this->assertEquals(8203, $split['ord']);
+        $this->assertEquals('BN', $split['septype']);
+        $this->assertEqualsWithDelta(4.92, $split['wordwidth'], 0.0001);
+        $this->assertEquals(2, $split['spaces']);
+        $this->assertEqualsWithDelta(60.9384, $split['totwidth'], 0.0001);
+        $this->assertEqualsWithDelta(8.76, $split['totspacewidth'], 0.0001);
 
         $outfont = $stack->getOutCurrentFont();
         $this->assertEquals("BT /F2 14.000000 Tf ET\n", $outfont);
@@ -181,6 +189,7 @@ class StackTest extends TestUtil
         $this->assertEquals('pdfacourier', $fname);
     }
 
+    /** @throws FontException */
     #[Test]
     public function testEmptyStack(): void
     {
@@ -189,6 +198,7 @@ class StackTest extends TestUtil
         $stack->popLastFont();
     }
 
+    /** @throws FontException */
     #[Test]
     public function testStackMissingFont(): void
     {
@@ -230,5 +240,175 @@ class StackTest extends TestUtil
         $this->expectException(FontException::class);
         $objnum++;
         $stack->cloneFont($objnum, 1);
+    }
+
+    /**
+     * @throws FileException
+     * @throws FontException
+     * @throws \RangeException
+     */
+    #[Test]
+    public function testHasCurrentFont(): void
+    {
+        $this->prepareTestEnvironment();
+        $indir = \dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/';
+
+        $objnum = 1;
+        $stack = new \Com\Tecnick\Pdf\Font\Stack(0.75, true, true, true);
+        $this->assertFalse($stack->hasCurrentFont());
+        $this->assertSame(0, $stack->getStackSize());
+        $this->assertSame(-1, $stack->getCurrentFontIndex());
+
+        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSans.ttf');
+        $font = $stack->insert($objnum, 'freesans', '', 12);
+        $this->assertTrue($stack->hasCurrentFont());
+        $this->assertSame(1, $stack->getStackSize());
+        $this->assertSame(0, $stack->getCurrentFontIndex());
+        $this->assertSame($font['out'], $stack->getOutCurrentFont());
+
+        $stack->cloneFont($objnum, null, null, 13);
+        $this->assertSame(2, $stack->getStackSize());
+        $this->assertSame(1, $stack->getCurrentFontIndex());
+
+        $stack->popLastFont();
+        $this->assertTrue($stack->hasCurrentFont());
+        $this->assertSame(1, $stack->getStackSize());
+        $this->assertSame(0, $stack->getCurrentFontIndex());
+
+        $stack->popLastFont();
+        $this->assertFalse($stack->hasCurrentFont());
+        $this->assertSame(0, $stack->getStackSize());
+        $this->assertSame(-1, $stack->getCurrentFontIndex());
+    }
+
+    /**
+     * @throws FileException
+     * @throws FontException
+     * @throws \RangeException
+     */
+    #[Test]
+    public function testUnicodeOrdAddedToSubsetChars(): void
+    {
+        $this->prepareTestEnvironment();
+        $indir = \dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/';
+        $objnum = 1;
+
+        $stack = new \Com\Tecnick\Pdf\Font\Stack(0.75, true, true, true);
+        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSans.ttf');
+        $stack->insert($objnum, 'freesans', '', 12, 0, 1, '', true);
+
+        // Use pi and almost-equal to ensure non-latin BMP code points are tracked.
+        $stack->getOrdArrDims([960, 8776]);
+
+        $fonts = $stack->getFonts();
+        $fkey = $stack->getCurrentFontKey();
+        $currentFont = $fonts[$fkey] ?? null;
+        $this->assertIsArray($currentFont);
+        $this->assertArrayHasKey(960, $currentFont['subsetchars']);
+        $this->assertArrayHasKey(8776, $currentFont['subsetchars']);
+    }
+
+    /**
+     * @throws FileException
+     * @throws FontException
+     * @throws \RangeException
+     */
+    #[Test]
+    public function testFractionalFontSize(): void
+    {
+        $this->prepareTestEnvironment();
+        $indir = \dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/';
+
+        $objnum = 1;
+        $stack = new \Com\Tecnick\Pdf\Font\Stack(0.75, true, true, true);
+
+        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSans.ttf');
+        $font = $stack->insert($objnum, 'freesans', '', 10.5);
+
+        $this->bcAssertEqualsWithDelta(10.5, $font['size'], 0.0001);
+        $this->assertEquals("BT /F1 10.500000 Tf ET\r", $font['out']);
+
+        $clone = $stack->cloneFont($objnum, null, null, 11.25);
+
+        $this->bcAssertEqualsWithDelta(11.25, $clone['size'], 0.0001);
+        $this->assertEquals("BT /F1 11.250000 Tf ET\r", $clone['out']);
+    }
+
+    /**
+     * @throws FileException
+     * @throws FontException
+     * @throws \RangeException
+     */
+    #[Test]
+    public function testCloneFontRejectsOutOfRangeIndex(): void
+    {
+        $this->prepareTestEnvironment();
+        $indir = \dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/';
+        $objnum = 1;
+
+        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+        new \Com\Tecnick\Pdf\Font\Import($indir . 'core/Helvetica.afm');
+        $stack->insert($objnum, 'helvetica');
+
+        $this->bcExpectException(\Com\Tecnick\Pdf\Font\Exception::class);
+        $stack->cloneFont($objnum, 99);
+    }
+
+    /**
+     * @throws FileException
+     * @throws FontException
+     * @throws \RangeException
+     */
+    #[Test]
+    public function testReplaceMissingCharsKeepsOriginalWhenNoSubstitutesProvided(): void
+    {
+        $this->prepareTestEnvironment();
+        $indir = \dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/';
+        $objnum = 1;
+
+        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+        new \Com\Tecnick\Pdf\Font\Import($indir . 'core/Helvetica.afm');
+        $stack->insert($objnum, 'helvetica');
+
+        $this->assertSame([400], $stack->replaceMissingChars([400], []));
+    }
+
+    /** @throws FontException */
+    #[Test]
+    public function testGetFontFamilyNameRejectsEmptyString(): void
+    {
+        $this->prepareTestEnvironment();
+        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+
+        $this->bcExpectException(\Com\Tecnick\Pdf\Font\Exception::class);
+        $stack->getFontFamilyName('');
+    }
+
+    /** @throws FontException */
+    #[Test]
+    public function testGetCharWidthFailsWithoutCurrentFont(): void
+    {
+        $this->prepareTestEnvironment();
+        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+
+        $this->bcExpectException(\Com\Tecnick\Pdf\Font\Exception::class);
+        $stack->getCharWidth(65);
+    }
+
+    /** @throws FontException */
+    #[Test]
+    public function testMalformedCharBoxDataIsIgnored(): void
+    {
+        $this->prepareTestEnvironment();
+        $objnum = 1;
+        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+
+        \file_put_contents(
+            $this->getFontPath() . 'badbbox.json',
+            '{"type":"Type1","desc":{"FontBBox":"[0 0 0 0]"},"cw":{"65":400},"cbbox":{"65":[1,2,3]}}',
+        );
+
+        $stack->insert($objnum, 'badbbox', '', null, null, null, $this->getFontPath() . 'badbbox.json', null);
+        $this->assertSame([0.0, 0.0, 0.0, 0.0], $stack->getCharBBox(65));
     }
 }

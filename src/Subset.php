@@ -21,6 +21,7 @@ namespace Com\Tecnick\Pdf\Font;
 use Com\Tecnick\File\Byte;
 use Com\Tecnick\File\Compression;
 use Com\Tecnick\File\Exception as FileException;
+use Com\Tecnick\File\File as ObjFile;
 use Com\Tecnick\Pdf\Font\Enum\GlyphType;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
 use Com\Tecnick\Pdf\Font\Import\TrueType;
@@ -158,24 +159,37 @@ class Subset
     protected string $subfont = '';
 
     /**
+     * File helper used to load font definition files.
+     */
+    protected ObjFile $fileHelper;
+
+    /**
      * Process TrueType font
      *
      * @param string              $font          Content (binary) of the input font file
      * @param TFontData           $fdt           Extracted font metrics
+     * @param ObjFile             $fileHelper    Optional file helper for font loading
      * @param array<int, int>     $subchars      Array containing subset chars
      *
      * @throws FileException
      * @throws FontException
      */
-    public function __construct(protected readonly string $font, array $fdt, protected array $subchars = [])
+    public function __construct(protected readonly string $font, array $fdt, ObjFile $fileHelper, protected array $subchars = [])
     {
         if (empty($fdt['subset'])) {
             throw new FontException('Subset flag in fdt array must equal true to create a font subset.');
         }
+        $this->fileHelper = $fileHelper;
 
         // Use the TrueType class to get information about the base font.
         $this->fbyte = new Byte($font);
-        $trueType = new TrueType($font, $fdt, $this->fbyte, $this->subchars);
+        $trueType = new TrueType(
+            font: $font,
+            fdt: $fdt,
+            fileHelper: $this->fileHelper,
+            fbyte: $this->fbyte,
+            subchars: $subchars,
+        );
         $this->fdt = $trueType->getFontMetrics();
 
         if (empty($this->fdt['tableSubset']['hmtx']['hMetrics'])) {
@@ -917,6 +931,20 @@ class Subset
     }
 
     /**
+     * Returns the first available loca index from $start, or null if none exists.
+     */
+    protected function getNextLocaIndex(int $start): ?int
+    {
+        for ($idx = $start; $idx <= $this->fdt['tot_num_glyphs']; ++$idx) {
+            if (isset($this->fdt['indexToLoc'][$idx])) {
+                return $idx;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * build new subset font
      *
      * @throws FontException
@@ -933,7 +961,7 @@ class Subset
         // TTF TableDirectory
         $this->subfont =
             // sfnt version
-            \pack('N', 0x00010000) .
+            \pack('N', 0x1_0000) .
             // numTables
             \pack('n', $numTables) .
             // searchRange

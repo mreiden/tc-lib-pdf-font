@@ -6,56 +6,76 @@
       "only": ["tecnickcom/tc-lib-file"]
     }
   ],
-  "name": "tecnickcom/tc-lib-pdf-font",
-  "description": "PHP library containing PDF page formats and definitions",
-  "type": "library",
+    "name": "tecnickcom/tc-lib-pdf-font",
+    "description": "PHP library containing PDF page formats and definitions",
+    "type": "library",
   "homepage": "https://tecnick.com/",
-  "license": "LGPL-3.0-or-later",
-  "keywords": [
-    "tc-lib-pdf-font",
-    "PDF",
-    "font",
-    "TTF",
-    "AFM",
-    "PFB",
-    "import"
-  ],
-  "authors": [
-    {
-      "name": "Nicola Asuni",
-      "email": "info@tecnick.com",
-      "role": "lead"
-    }
-  ],
-  "require": {
-    "php": ">=8.1",
-    "ext-json": "*",
-    "ext-pcre": "*",
-    "ext-zlib": "*",
-    "tecnickcom/tc-lib-file": "dev-byte-bitwise as 2.3.99",
-    "tecnickcom/tc-lib-unicode-data": "^2.0",
-    "tecnickcom/tc-lib-pdf-encrypt": "^2.1"
-  },
-  "config": {
-    "allow-plugins": {
-      "dealerdirect/phpcodesniffer-composer-installer": true
+    "license": "LGPL-3.0-or-later",
+    "keywords": [
+        "tc-lib-pdf-font",
+        "PDF",
+        "font",
+        "TTF",
+        "AFM",
+        "PFB",
+        "import"
+    ],
+    "authors": [
+        {
+            "name": "Nicola Asuni",
+            "email": "info@tecnick.com",
+            "role": "lead"
+        }
+    ],
+    "funding": [
+        {
+            "type": "github",
+            "url": "https://github.com/sponsors/tecnickcom"
+        }
+    ],
+    "require": {
+        "php": ">=8.2",
+        "ext-json": "*",
+        "ext-pcre": "*",
+        "ext-zlib": "*",
+    "tecnickcom/tc-lib-file": "dev-byte-bitwise as 3.99.99",
+    "tecnickcom/tc-lib-unicode-data": "^2.3",
+    "tecnickcom/tc-lib-pdf-encrypt": "^2.5"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
     },
     "sort-packages": true
-  },
-  "require-dev": {
+    },
+    "require-dev": {
     "pdepend/pdepend": "3.x-dev",
     "phpcompatibility/php-compatibility": "^10.0.0@dev",
     "phpmd/phpmd": "3.x-dev",
     "phpstan/phpstan": "^2.1.46",
-    "phpunit/phpunit": "^13.1.0 || 12.5.14 || 11.5.55 || 10.5.63",
+    "phpunit/phpunit": "^13.1 || 12.5 || 11.5",
     "squizlabs/php_codesniffer": "^4.0.1"
-  },
-  "autoload": {
-    "psr-4": {
-      "Com\\Tecnick\\Pdf\\Font\\": "src"
+    },
+    "autoload": {
+        "psr-4": {
+            "Com\\Tecnick\\Pdf\\Font\\": "src"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Test\\": "test"
+        }
+    },
+    "support": {
+        "issues": "https://github.com/tecnickcom/tc-lib-pdf-font/issues",
+        "source": "https://github.com/tecnickcom/tc-lib-pdf-font"
+    },
+    "scripts": {
+        "test": "XDEBUG_MODE=coverage ./vendor/bin/phpunit --stderr test",
+        "cs-check": "./vendor/bin/mago --config ./mago.src.toml lint src && ./vendor/bin/mago --config ./mago.test.toml lint test",
+        "cs-fix": "./vendor/bin/mago fmt src test",
+        "analyse": "./vendor/bin/mago --config ./mago.src.toml analyze src && ./vendor/bin/mago --config ./mago.test.toml analyze test"
     }
-  },
-  "autoload-dev": {
-    "psr-4": { "Test\\": "test" }
-  }
 }

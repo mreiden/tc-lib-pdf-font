@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Com\Tecnick\Pdf\Font;
 
 use Com\Tecnick\File\Dir;
+use Com\Tecnick\File\File as ObjFile;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
 use Com\Tecnick\Pdf\Font\Enum\FontTypes;
 use Com\Tecnick\Pdf\Font\Trait\FontDataTrait;
@@ -119,7 +120,7 @@ use Com\Tecnick\Pdf\Font\Trait\FontDataTrait;
  *     ItalicAngle: int,
  *     Leading: int,
  *     MaxWidth: int,
- *     MissingWidth: int,
+ *     MissingWidth: int|null,
  *     StdHW: int,
  *     StdVW: int,
  *     StemH: int,
@@ -136,15 +137,17 @@ use Com\Tecnick\Pdf\Font\Trait\FontDataTrait;
  *     ctg: string,
  *     ctgdata: array<int, int>,
  *     cw:  array<int, int>,
+ *     cwu:  array<int, int>,
  *     datafile: string,
  *     desc: TFontDataDesc,
  *     diff: string,
  *     diff_n: int,
+ *     diffid?: int,
  *     dir: string,
  *     dw: int,
  *     enc: string,
  *     enc_map: array<int, string>,
- *     encodingTables: list<TFontDataEncTable>,
+ *     encodingTables: array<int, TFontDataEncTable>,
  *     encoding_id: int,
  *     encrypted: string,
  *     fakestyle: bool,
@@ -196,11 +199,30 @@ use Com\Tecnick\Pdf\Font\Trait\FontDataTrait;
 abstract class Load
 {
     /**
+     * File helper used to load font definition files.
+     */
+    protected ObjFile $fileHelper;
+
+    /**
+     * True when the file helper is created internally by this class.
+     */
+    protected bool $ownsFileHelper = false;
+
+    /**
      * Font data
      *
      * Adds the 'protected TFontData $fdt' property shared with Subset
      */
     use FontDataTrait;
+
+    /**
+     * @param ObjFile|null $fileHelper Optional file helper for font loading.
+     */
+    public function __construct(?ObjFile $fileHelper = null)
+    {
+        $this->ownsFileHelper = $fileHelper === null;
+        $this->fileHelper = $fileHelper ?? new ObjFile(allowedPaths: $this->buildAllowedPaths());
+    }
 
     /**
      * Load the font data
@@ -229,17 +251,18 @@ abstract class Load
     {
         $this->findFontFile();
 
-        // Read the font definition file.
-        if (!@\is_readable($this->fdt['ifile'])) {
-            throw new FontException('unable to read file: ' . $this->fdt['ifile']);
+        if ($this->ownsFileHelper) {
+            $this->fileHelper->setAllowedPaths($this->buildAllowedPaths());
         }
 
-        $fdt = @\file_get_contents($this->fdt['ifile']);
+        // read the font definition file
+        $fdt = $this->fileHelper->getFileData($this->fdt['ifile']);
         if ($fdt === false) {
             throw new FontException('unable to read file: ' . $this->fdt['ifile']);
         }
 
-        $fdtdata = @\json_decode($fdt, true, 10, JSON_OBJECT_AS_ARRAY);
+        /** @var array<string, mixed>|null $fdtdata */
+        $fdtdata = \json_decode($fdt, true, 10, JSON_OBJECT_AS_ARRAY);
         if ($fdtdata === null) {
             throw new FontException('JSON decoding error [' . \json_last_error() . ']');
         }
@@ -273,7 +296,7 @@ abstract class Load
         }
 
         $parent_font_dir = $dir->findParentDir('fonts', __DIR__);
-        if ($parent_font_dir !== '' && $parent_font_dir != '/') {
+        if ($parent_font_dir !== '' && $parent_font_dir !== '/') {
             $dirs[] = $parent_font_dir;
             $glb = \glob($parent_font_dir . DIRECTORY_SEPARATOR . '*', GLOB_ONLYDIR);
             if ($glb !== false) {
@@ -285,12 +308,22 @@ abstract class Load
     }
 
     /**
+     * Build trusted roots for local font definition loading.
+     *
+     * @return array<string>
+     */
+    protected function buildAllowedPaths(): array
+    {
+        return FontPaths::buildAllowedPaths();
+    }
+
+    /**
      * Load the font data
      */
     protected function findFontFile(): void
     {
-        if (!empty($this->fdt['ifile'])) {
-            $this->fdt['dir'] = \dirname($this->fdt['ifile']);
+        if ($this->data['ifile'] !== '') {
+            $this->data['dir'] = \dirname($this->data['ifile']);
             return;
         }
 
@@ -304,7 +337,7 @@ abstract class Load
 
         foreach ($files as $file) {
             foreach ($dirs as $dir) {
-                if (@\is_readable($dir . DIRECTORY_SEPARATOR . $file)) {
+                if (\is_readable($dir . DIRECTORY_SEPARATOR . $file)) {
                     $this->fdt['ifile'] = $dir . DIRECTORY_SEPARATOR . $file;
                     $this->fdt['dir'] = $dir;
                     break 2;
@@ -318,7 +351,7 @@ abstract class Load
 
     protected function setDefaultWidth(): void
     {
-        if (!empty($this->fdt['dw'])) {
+        if ($this->data['dw'] !== 0) {
             return;
         }
 
@@ -363,8 +396,8 @@ abstract class Load
             throw new FontException('CID0 fonts are not supported, all fonts must be embedded in PDF/A mode!');
         }
 
-        if (empty($this->fdt['name'])) {
-            $this->fdt['name'] = (string) $this->fdt['key'];
+        if ($this->fdt['name'] === '') {
+            $this->fdt['name'] = $this->data['key'];
         }
     }
 
@@ -376,7 +409,7 @@ abstract class Load
         // artificial bold
         if ($this->fdt['mode']['bold']) {
             $this->fdt['name'] .= 'Bold';
-            $this->fdt['desc']['StemV'] = empty($this->fdt['desc']['StemV'])
+            $this->fdt['desc']['StemV'] = $this->fdt['desc']['StemV'] === 0
                 ? 123
                 : (int) \round($this->fdt['desc']['StemV'] * 1.75);
         }
@@ -384,13 +417,13 @@ abstract class Load
         // artificial italic
         if ($this->fdt['mode']['italic']) {
             $this->fdt['name'] .= 'Italic';
-            if (!empty($this->fdt['desc']['ItalicAngle'])) {
+            if ($this->fdt['desc']['ItalicAngle'] !== 0) {
                 $this->fdt['desc']['ItalicAngle'] -= 11;
             } else {
                 $this->fdt['desc']['ItalicAngle'] = -11;
             }
 
-            if (!empty($this->fdt['desc']['Flags'])) {
+            if ($this->fdt['desc']['Flags'] !== 0) {
                 $this->fdt['desc']['Flags'] |= 64; //bit 7
             } else {
                 $this->fdt['desc']['Flags'] = 64;
@@ -400,7 +433,7 @@ abstract class Load
 
     public function setFileData(): void
     {
-        if (empty($this->fdt['file'])) {
+        if ($this->fdt['file'] === '') {
             return;
         }
 

@@ -52,7 +52,18 @@ class BufferTest extends TestUtil
         $this->assertSame(true, $stack->isSubsetMode());
     }
 
+    /** @throws \Com\Tecnick\Pdf\Font\Exception */
     #[Test]
+    public function testAddSubsetCharOnMissingFontThrows(): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Pdf\Font\Exception::class);
+        $this->setupTest();
+        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+        $stack->addSubsetChar('missing', 65);
+    }
+
+    #[Test]
+    /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testStackMissingKey(): void
     {
         $stack = new Stack(1);
@@ -61,6 +72,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testStackMissingFontName(): void
     {
         $stack = new Stack(1);
@@ -70,6 +82,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testStackIFileMissing(): void
     {
         $stack = new Stack(1);
@@ -79,6 +92,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testStackIFileNotJson(): void
     {
         $stack = new Stack(1);
@@ -88,6 +102,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testStackIFileWrongFormat(): void
     {
         \file_put_contents($this->getFontPath() . 'badformat.json', '{"bad":"format"}');
@@ -99,6 +114,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadFileDoubleDots(): void
     {
         $stack = new Stack(1);
@@ -167,6 +183,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadDefaultWidthB(): void
     {
         \file_put_contents($this->getFontPath() . 'test.json', '{"type":"Type1","cw":{"32":123}}');
@@ -179,6 +196,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadDefaultWidthC(): void
     {
         \file_put_contents(
@@ -194,6 +212,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadWrongType(): void
     {
         \file_put_contents($this->getFontPath() . 'test.json', '{"type":"WRONG","cw":{"0":600}}');
@@ -206,6 +225,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadCidOnPdfa(): void
     {
         \file_put_contents($this->getFontPath() . 'test.json', '{"type":"cidfont0","cw":{"0":600}}');
@@ -218,6 +238,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadArtificialStyles(): void
     {
         \file_put_contents(
@@ -231,6 +252,11 @@ class BufferTest extends TestUtil
         $this->assertNotEmpty($key);
     }
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     * @throws \Com\Tecnick\Pdf\Font\Exception
+     * @throws \RangeException
+     */
     #[Test]
     public function testBuffer(): void
     {
@@ -285,6 +311,11 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     * @throws \Com\Tecnick\Pdf\Font\Exception
+     * @throws \RangeException
+     */
     public function testBufferPdfa(): void
     {
         $indir = \dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/';

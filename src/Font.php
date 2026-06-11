@@ -18,7 +18,7 @@ declare(strict_types=1);
 
 namespace Com\Tecnick\Pdf\Font;
 
-use Com\Tecnick\File\File;
+use Com\Tecnick\File\File as ObjFile;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
 
 /**
@@ -63,6 +63,7 @@ class Font extends Load
      * @param bool   $unicode  True in Unicode mode, False otherwise.
      * @param bool   $pdfa     True in PDF/A mode, False otherwise.
      * @param bool   $compress Set to false to disable stream compression.
+     * @param ObjFile|null $fileHelper Optional file helper for font loading.
      *
      * @throws FontException in case of error
      */
@@ -74,13 +75,19 @@ class Font extends Load
         bool $unicode = true,
         bool $pdfa = false,
         bool $compress = true,
+        ?ObjFile $fileHelper = null,
     ) {
+        parent::__construct($fileHelper);
+
         if ($font === '') {
             throw new FontException('empty font family name');
         }
 
-        if (FILE::hasDoubleDots($ifile) || FILE::hasForbiddenProtocol($ifile)) {
-            throw new FontException('Invalid font ifile: ' . $ifile);
+        if ($ifile !== '') {
+            $validatedIfile = $ifile;
+            if (!$this->fileHelper->isValidFile($validatedIfile)) {
+                throw new FontException('Invalid font ifile: ' . $ifile);
+            }
         }
 
         $this->fdt['ifile'] = $ifile;
@@ -105,7 +112,6 @@ class Font extends Load
     /**
      * Get the font data
      *
-     * @phpstan-import-type TFontData from \Com\Tecnick\Pdf\Font\Load
      * @return TFontData
      */
     public function getFontData(): array
