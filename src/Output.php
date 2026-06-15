@@ -191,9 +191,11 @@ class Output extends OutFont
             // extract the character subset
             if ($font['file'] !== '') {
                 $file_key = \md5($font['file']);
-                $this->subchars[$file_key] = empty($this->subchars[$file_key])
-                    ? $font['subsetchars']
-                    : \array_merge($this->subchars[$file_key], $font['subsetchars']);
+                // Union (not array_merge) to preserve integer character-code keys; array_filter drops
+                // chars flagged false so only the used characters remain in the merged subset.
+                $this->subchars[$file_key] = \array_filter(
+                    ($this->subchars[$file_key] ?? []) + $font['subsetchars'],
+                );
             }
         }
 
