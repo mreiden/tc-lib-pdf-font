@@ -80,6 +80,7 @@ class TrueTypeTest extends TestUtil
      *  @return void
      */
 
+    // Verifies isValidType() rejects a font whose sfnt version header is not 0x00010000, throwing before any file I/O.
     #[Test]
     public function testExceptionInvalidType(): void
     {
@@ -93,6 +94,8 @@ class TrueTypeTest extends TestUtil
         new TrueType($binary, $this->fdt, $byte);
     }
 
+    // Verifies checkMagickNumber() throws when the head table's magic number != 0x5f0f3cf5; also guards that
+    // setFontFile() runs (storing the font) before the magic-number check, so K_PATH_FONTS must be an allowed path.
     #[Test]
     public function testExceptionInvalidMagicNumber(): void
     {
@@ -140,6 +143,8 @@ class TrueTypeTest extends TestUtil
         new TrueType($binary, $this->fdt, $byte);
     }
 
+    // Verifies a format 13 subtable with numGroups=0 maps no chars, so getCIDToGIDMap leaves only the
+    // .notdef fallback (ctgdata == [0=>0]) and the font type is untouched.
     public function testGetCIDToGIDMapFormat13SetsNotDefGlyph(): void
     {
         // Format 13 subtable with numGroups=0: maps nothing, only .notdef fallback is added.
@@ -175,6 +180,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame('TrueTypeUnicode', $this->getFontDataString($fontData, 'type'));
     }
 
+    // Verifies format 13 (many-to-one) maps every code in a group's range to the same glyph id:
+    // chars 65,66,67 all -> glyph 5, plus the .notdef fallback.
     public function testProcessFormat13MapsCharsToSingleGlyph(): void
     {
         // Binary blob for a Format 13 subtable read after the format field (offset=2):
@@ -224,6 +231,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame(0, $this->getCtgGlyph($fontData, 0));
     }
 
+    // Verifies format 13 records a subset glyph: when char 65 is flagged in subchars, addCtgItem maps 65->glyph 7
+    // and registers the reverse subglyphs[7]=65 entry needed for subsetting.
     public function testProcessFormat13AddsGlyphsToSubset(): void
     {
         $font =
@@ -266,6 +275,8 @@ class TrueTypeTest extends TestUtil
         $this->assertTrue($subGlyphs[7] ?? false);
     }
 
+    // Verifies format 14 (Unicode Variation Sequences) follows a non-zero nonDefaultUVSOffset and maps the
+    // UVS unicodeValue U+0082A6 -> glyph 1142, keeping the .notdef fallback.
     public function testProcessFormat14NonDefaultUVSMapsGlyphs(): void
     {
         // Format 14 subtable with 1 VariationSelector record that has a Non-Default UVS table.
@@ -318,6 +329,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame(0, $this->getCtgGlyph($fontData, 0));
     }
 
+    // Verifies format 14 with multiple UVS mappings maps each (U+0082A6->7961, U+004E4D->42), and that only the
+    // flagged subchar's glyph is tracked in subglyphs (7961 present, 42 absent).
     public function testProcessFormat14NonDefaultUVSTracksSubglyphs(): void
     {
         // Same layout as above but with a second mapping and subchars tracking.
@@ -379,6 +392,8 @@ class TrueTypeTest extends TestUtil
         $this->assertArrayNotHasKey(42, $subGlyphs);
     }
 
+    // Verifies format 14 ignores Default UVS records (those reuse the main cmap glyph): a record with only a
+    // defaultUVSOffset and nonDefaultUVSOffset=0 adds no ctgdata entries beyond .notdef.
     public function testProcessFormat14DefaultUVSOnlyAddsNoCtgEntries(): void
     {
         // Format 14 subtable with 1 VariationSelector record that has only a Default UVS table.
@@ -430,6 +445,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame([0 => 0], $this->getCtgData($fontData));
     }
 
+    // Verifies a format 14 subtable with numVarSelectorRecords=0 produces no mappings, leaving only the
+    // .notdef fallback (ctgdata == [0=>0]).
     public function testGetCIDToGIDMapFormat14SetsNotDefGlyph(): void
     {
         // Format 14 subtable with numVarSelectorRecords=0: no mappings → only .notdef fallback added.
@@ -462,6 +479,7 @@ class TrueTypeTest extends TestUtil
         $this->assertSame([0 => 0], $this->getCtgData($fontData));
     }
 
+    // Verifies getCIDToGIDMap throws on an unrecognised cmap subtable format (here 15), via the match() default arm.
     public function testGetCIDToGIDMapThrowsOnUnsupportedFormat(): void
     {
         $instance = $this->buildTrueType("\x00\x0f", [
@@ -486,6 +504,8 @@ class TrueTypeTest extends TestUtil
         $this->invokeMethod($instance, 'getCIDToGIDMap');
     }
 
+    // Verifies addCtgItem maps cid->gid in ctgdata and, when the cid is a flagged subchar, also records the
+    // reverse subglyphs[gid]=cid entry (65->7 and subglyphs[7]=65).
     public function testAddCtgItemAddsGlyphToSubset(): void
     {
         $instance = $this->buildTrueType('', [
@@ -507,6 +527,8 @@ class TrueTypeTest extends TestUtil
     // Issue 1: cmap fallback selection
     // -------------------------------------------------------------------------
 
+    // Verifies selectEncodingTable returns the subtable that exactly matches the requested platform/encoding (3/1),
+    // preferring it over other available pairs.
     public function testSelectEncodingTableReturnsExactMatch(): void
     {
         $tables = [
@@ -527,6 +549,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame(1, $result['encodingID']);
     }
 
+    // Verifies selectEncodingTable falls back to Windows UCS-4 (3/10), the top CMAP_FALLBACK_PRIORITY entry,
+    // when the requested 3/1 subtable is absent.
     public function testSelectEncodingTableFallsBackToWindowsUCS4(): void
     {
         // Requested 3/1 is absent; only 3/10 (UCS-4) is available.
@@ -546,6 +570,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame(7, $result['offset']);
     }
 
+    // Verifies selectEncodingTable falls back to Windows BMP (3/1) when the requested 3/0 and higher-priority
+    // 3/10 are absent.
     public function testSelectEncodingTableFallsBackToWindowsBMP(): void
     {
         // Neither 3/0 (requested) nor 3/10 present; only 3/1 available.
@@ -564,6 +590,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame(1, $result['encodingID']);
     }
 
+    // Verifies selectEncodingTable falls back to a Unicode platform-0 subtable when no Windows (platform 3)
+    // subtable exists, per CMAP_FALLBACK_PRIORITY.
     public function testSelectEncodingTableFallsBackToPlatform0(): void
     {
         // No Windows (platform 3) subtables; should fall back to platform 0.
@@ -582,6 +610,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame(3, $result['encodingID']);
     }
 
+    // Verifies selectEncodingTable returns null when neither the requested pair nor any fallback pair is present
+    // (only an unrecognised 9/9 subtable available).
     public function testSelectEncodingTableReturnsNullWhenNoTableAvailable(): void
     {
         $instance = $this->buildTrueType('', [
@@ -597,6 +627,8 @@ class TrueTypeTest extends TestUtil
         $this->assertNull($result);
     }
 
+    // Verifies getCIDToGIDMap throws when selectEncodingTable finds no usable subtable (only an unrecognised
+    // 9/9 pair present) — the "no usable cmap subtable" failure path.
     public function testGetCIDToGIDMapThrowsWhenNoTableFound(): void
     {
         // encodingTables contains only an unrecognised platform/encoding pair.
@@ -616,6 +648,7 @@ class TrueTypeTest extends TestUtil
         $this->invokeMethod($instance, 'getCIDToGIDMap');
     }
 
+    // Verifies getCIDToGIDMap throws when encodingTables is empty (no subtables at all to select from).
     public function testGetCIDToGIDMapThrowsWhenEncodingTablesEmpty(): void
     {
         $instance = $this->buildTrueType('', [
@@ -630,6 +663,8 @@ class TrueTypeTest extends TestUtil
         $this->invokeMethod($instance, 'getCIDToGIDMap');
     }
 
+    // Verifies getCIDToGIDMap end-to-end uses a fallback subtable: with 3/1 absent it reads the 3/10 format-13
+    // subtable (0 groups), yielding only the .notdef fallback.
     public function testGetCIDToGIDMapUsesFallbackTable(): void
     {
         // Requested 3/1 is absent; 3/10 is present with format 13, 0 groups.
@@ -660,6 +695,7 @@ class TrueTypeTest extends TestUtil
     // Issue 2: fsType embedding-policy enforcement
     // -------------------------------------------------------------------------
 
+    // Verifies applyEmbeddingPolicy throws on fsType 0x0002 (Restricted License only) — the font may not be embedded.
     public function testApplyEmbeddingPolicyThrowsOnRestrictedLicense(): void
     {
         $instance = $this->buildTrueType('', []);
@@ -668,6 +704,7 @@ class TrueTypeTest extends TestUtil
         $this->invokeMethod($instance, 'applyEmbeddingPolicy', [0x0002]);
     }
 
+    // Verifies applyEmbeddingPolicy permits fsType 0x0004 (Preview & Print): no exception and subset stays enabled.
     public function testApplyEmbeddingPolicyAllowsPreviewPrint(): void
     {
         $instance = $this->buildTrueType('', ['subset' => true]);
@@ -678,6 +715,8 @@ class TrueTypeTest extends TestUtil
         $this->assertTrue($this->getFontDataBool($fontData, 'subset'));
     }
 
+    // Verifies a permissive bit overrides the Restricted-License bit: fsType 0x0006 (0x0002|0x0004) does not throw
+    // and leaves subset enabled (spec precedence, guards the & 0x000E mask).
     public function testApplyEmbeddingPolicyPermissiveBitOverridesRestricted(): void
     {
         $instance = $this->buildTrueType('', ['subset' => true]);
@@ -687,6 +726,7 @@ class TrueTypeTest extends TestUtil
         $this->assertTrue($this->getFontDataBool($fontData, 'subset'));
     }
 
+    // Verifies applyEmbeddingPolicy throws on fsType 0x0200 (Bitmap Embedding Only) — incompatible with vector PDF embedding.
     public function testApplyEmbeddingPolicyThrowsOnBitmapOnly(): void
     {
         $instance = $this->buildTrueType('', []);
@@ -695,6 +735,8 @@ class TrueTypeTest extends TestUtil
         $this->invokeMethod($instance, 'applyEmbeddingPolicy', [0x0200]);
     }
 
+    // Verifies the Bitmap-Only restriction still applies when combined with a permissive bit: fsType 0x0208
+    // (Bitmap Only | Editable) throws.
     public function testApplyEmbeddingPolicyThrowsOnBitmapOnlyWithEditable(): void
     {
         $instance = $this->buildTrueType('', []);
@@ -703,6 +745,7 @@ class TrueTypeTest extends TestUtil
         $this->invokeMethod($instance, 'applyEmbeddingPolicy', [0x0208]);
     }
 
+    // Verifies fsType 0x0100 (No Subsetting) is allowed to embed but forces fdt['subset'] to false.
     public function testApplyEmbeddingPolicyDisablesSubsetOnNoSubsettingFlag(): void
     {
         $instance = $this->buildTrueType('', ['subset' => true]);
@@ -712,6 +755,7 @@ class TrueTypeTest extends TestUtil
         $this->assertFalse($this->getFontDataBool($fontData, 'subset'));
     }
 
+    // Verifies fsType 0x0108 (Editable | No Subsetting) embeds without throwing but still disables subset.
     public function testApplyEmbeddingPolicyNoSubsettingWithEditableAllowed(): void
     {
         $instance = $this->buildTrueType('', ['subset' => true]);
@@ -721,6 +765,7 @@ class TrueTypeTest extends TestUtil
         $this->assertFalse($this->getFontDataBool($fontData, 'subset'));
     }
 
+    // Verifies fsType 0x0000 (Installable, no restrictions) imposes no policy: no throw and subset stays enabled.
     public function testApplyEmbeddingPolicyInstallableAllowsSubset(): void
     {
         $instance = $this->buildTrueType('', ['subset' => true]);
@@ -734,6 +779,8 @@ class TrueTypeTest extends TestUtil
     // Issue 3: OS/2 table resilience
     // -------------------------------------------------------------------------
 
+    // Verifies getOS2Metrics applies conservative defaults (AvgWidth=0, StemV=70, StemH=30) when the optional
+    // OS/2 table is missing, rather than failing.
     public function testGetOS2MetricsUsesDefaultsWhenTableAbsent(): void
     {
         // 'table' has no 'OS/2' entry at all.
@@ -750,6 +797,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame(30, $this->getFontDataInt($fontData, 'StemH'));
     }
 
+    // Verifies getOS2Metrics throws when the OS/2 table length is below OS2_MIN_LENGTH (10), guarding against
+    // out-of-bounds reads through the fsType field.
     public function testGetOS2MetricsThrowsWhenTableTooShort(): void
     {
         $instance = $this->buildTrueType('', [
@@ -763,6 +812,8 @@ class TrueTypeTest extends TestUtil
         $this->invokeMethod($instance, 'getOS2Metrics');
     }
 
+    // Verifies getOS2Metrics parses a valid OS/2 table: AvgWidth = xAvgCharWidth*urk (1024), StemV/StemH derived
+    // from usWeightClass 400 (70/30), and an Editable fsType leaves subset enabled.
     public function testGetOS2MetricsParsesValidTable(): void
     {
         // Minimal valid OS/2 blob: 10 bytes.
@@ -795,6 +846,8 @@ class TrueTypeTest extends TestUtil
         $this->assertTrue($this->getFontDataBool($fontData, 'subset'));
     }
 
+    // Verifies getOS2Metrics reads fsType from the table and applies the policy: a No-Subsetting flag (0x0100)
+    // disables fdt['subset'].
     public function testGetOS2MetricsNoSubsettingFlagDisablesSubset(): void
     {
         // fsType = 0x0100 (No Subsetting)
@@ -1136,6 +1189,8 @@ class TrueTypeTest extends TestUtil
     // cmap format 0 – byte encoding table
     // -------------------------------------------------------------------------
 
+    // Verifies cmap format 0 (256-byte direct lookup) maps each byte code to its glyph id (65->99, 90->10) and
+    // that filling all 256 slots converts type TrueTypeUnicode -> TrueType.
     public function testProcessFormat0MapsAllGlyphs(): void
     {
         // Format 0: 256-byte direct lookup. After getCIDToGIDMap reads the 2-byte
@@ -1174,6 +1229,8 @@ class TrueTypeTest extends TestUtil
     // cmap format 2 – high-byte mapping through table
     // -------------------------------------------------------------------------
 
+    // Verifies cmap format 2 with all-zero subHeaderKeys (single-byte codes) maps every byte to glyph 99 via the
+    // index-0 subHeader, and that 256 entries convert type TrueTypeUnicode -> TrueType.
     public function testProcessFormat2MapsCharsViaSingleByteSubheaders(): void
     {
         // All 256 subHeaderKeys = 0  → single-byte codes, one subHeader at index 0.
@@ -1215,6 +1272,8 @@ class TrueTypeTest extends TestUtil
     // cmap format 6 – trimmed table mapping
     // -------------------------------------------------------------------------
 
+    // Verifies cmap format 6 (trimmed table) maps a contiguous range from firstCode: 65->10, 66->11, 67->12;
+    // with only 4 entries the type stays TrueTypeUnicode (no 256-entry conversion).
     public function testProcessFormat6MapsCharRange(): void
     {
         // firstCode=65, entryCount=3, glyphs=[10,11,12]
@@ -1252,6 +1311,7 @@ class TrueTypeTest extends TestUtil
     // cmap format 8 – mixed 16-bit and 32-bit coverage
     // -------------------------------------------------------------------------
 
+    // Verifies cmap format 8 with numGroups=0 maps nothing, leaving only the .notdef fallback (ctgdata == [0=>0]).
     public function testProcessFormat8WithNoGroupsAddsOnlyNotdef(): void
     {
         // numGroups = 0 → no character mappings; only the .notdef fallback is present.
@@ -1280,6 +1340,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame([0 => 0], $this->getCtgData($fontData));
     }
 
+    // Verifies cmap format 8 single-byte handling (is32 bit clear) and pins the overwrite quirk: addCtgItem first
+    // records glyph 5 in subglyphs (subchar 65), then ctgdata[65] is overwritten to 0.
     public function testProcessFormat8MapsSingleByteChar(): void
     {
         // numGroups=1: chars 65..65 → glyph 5. is32[8]=0 → single-byte char.
@@ -1322,6 +1384,8 @@ class TrueTypeTest extends TestUtil
     // cmap format 10 – trimmed array
     // -------------------------------------------------------------------------
 
+    // Verifies cmap format 10 (trimmed array) maps numChars codes from startCharCode: 65->10, 66->11, 67->12,
+    // plus the .notdef fallback.
     public function testProcessFormat10MapsCharRange(): void
     {
         // startCharCode=65, numChars=3, glyphs=[10,11,12]
@@ -1359,6 +1423,8 @@ class TrueTypeTest extends TestUtil
     // cmap format 12 – segmented coverage
     // -------------------------------------------------------------------------
 
+    // Verifies cmap format 12 (segmented coverage) assigns sequential glyph ids across a group's range:
+    // 65->100, 66->101, 67->102, plus the .notdef fallback.
     public function testProcessFormat12MapsSequentialGlyphs(): void
     {
         // 1 group: startCharCode=65, endCharCode=67, startGlyphID=100
@@ -1392,6 +1458,7 @@ class TrueTypeTest extends TestUtil
         $this->assertSame(0, $this->getCtgGlyph($fontData, 0));
     }
 
+    // Verifies cmap format 12 with nGroups=0 maps nothing, leaving only the .notdef fallback (ctgdata == [0=>0]).
     public function testProcessFormat12WithZeroGroupsAddsOnlyNotdef(): void
     {
         $font =
@@ -1421,6 +1488,8 @@ class TrueTypeTest extends TestUtil
     // convertStringEncoding
     // -------------------------------------------------------------------------
 
+    // Verifies decodeNameString decodes a Unicode-platform (platformId 0) name string as UTF-16BE:
+    // "\x00\x41" -> "A".
     public function testConvertStringEncodingForUnicodePlatformUtf16be(): void
     {
         $instance = $this->buildTrueType('', []);
@@ -1429,6 +1498,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame('A', $result);
     }
 
+    // Verifies decodeNameString decodes a Windows-platform name with encodingId 0 (default) as UTF-16BE:
+    // "\x00\x42" -> "B".
     public function testConvertStringEncodingForWindowsPlatformDefaultUtf16be(): void
     {
         $instance = $this->buildTrueType('', []);
@@ -1437,6 +1508,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame('B', $result);
     }
 
+    // Verifies decodeNameString decodes a Windows-platform name with encodingId 1 (Unicode BMP) as UTF-16BE:
+    // "\x00\x43" -> "C".
     public function testConvertStringEncodingForWindowsPlatformEncodingId1Utf16be(): void
     {
         $instance = $this->buildTrueType('', []);
@@ -1445,6 +1518,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame('C', $result);
     }
 
+    // Verifies decodeNameString takes the Macintosh (platformId 1 / MacRoman) branch and decodes ASCII
+    // "\x41" -> "A".
     public function testConvertStringEncodingForMacintoshPlatformAsciiChar(): void
     {
         $instance = $this->buildTrueType('', []);
@@ -1453,6 +1528,8 @@ class TrueTypeTest extends TestUtil
         $this->assertSame('A', $result);
     }
 
+    // Verifies decodeNameString selects CP936 (GBK) for a Windows-platform name with encodingId 3 and decodes
+    // ASCII-compatible "\x41" -> "A".
     public function testConvertStringEncodingForWindowsPlatformCp936(): void
     {
         $instance = $this->buildTrueType('', []);

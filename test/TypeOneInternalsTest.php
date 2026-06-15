@@ -256,6 +256,7 @@ class TypeOneInternalsTest extends TestUtil
     // extractStem
     // -------------------------------------------------------------------------
 
+    // Verifies extractStem reads StdVW/StdHW/CapHeight directly from the eexec text into StemV/StemH/CapHeight.
     public function testExtractStemReadsStdVwAndStdHw(): void
     {
         $instance = $this->buildTypeOne();
@@ -268,6 +269,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertSame(690, $this->getFontIntValue($fdt, 'CapHeight'));
     }
 
+    // Verifies that with no StdVW present and weight 'bold', extractStem falls back to the bold StemV default (123).
     public function testExtractStemUsesBoldDefaultWhenStdVwAbsent(): void
     {
         $instance = $this->buildTypeOne();
@@ -282,6 +284,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertSame(30, $this->getFontIntValue($fdt, 'StemH'));
     }
 
+    // Verifies extractStem's non-bold fallbacks (StemV=70, StemH=30) and that CapHeight defaults to Ascent (700).
     public function testExtractStemUsesDefaultsWhenNoMatchingKeys(): void
     {
         $instance = $this->buildTypeOne();
@@ -298,6 +301,7 @@ class TypeOneInternalsTest extends TestUtil
     // getRandomBytes
     // -------------------------------------------------------------------------
 
+    // Verifies getRandomBytes defaults lenIV to 4 when the eexec text contains no /lenIV directive.
     public function testGetRandomBytesDefaultsToFourWhenMissing(): void
     {
         $instance = $this->buildTypeOne();
@@ -306,6 +310,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertSame(4, $this->getFontIntValue($fdt, 'lenIV'));
     }
 
+    // Verifies getRandomBytes parses an explicit /lenIV value (8) from the eexec text.
     public function testGetRandomBytesParsesExplicitLenIV(): void
     {
         $instance = $this->buildTypeOne();
@@ -314,6 +319,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertSame(8, $this->getFontIntValue($fdt, 'lenIV'));
     }
 
+    // Verifies getRandomBytes accepts an explicit /lenIV 0 (no skipped bytes), not just nonzero values.
     public function testGetRandomBytesParsesLenIVZero(): void
     {
         $instance = $this->buildTypeOne();
@@ -326,6 +332,7 @@ class TypeOneInternalsTest extends TestUtil
     // getCharstringData
     // -------------------------------------------------------------------------
 
+    // Verifies getCharstringData returns no matches when the CharStrings dict holds no RD..ND glyph entries.
     public function testGetCharstringDataReturnsEmptyMatchesWhenNoneFound(): void
     {
         $instance = $this->buildTypeOne();
@@ -339,6 +346,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertCount(0, $result);
     }
 
+    // Verifies getCharstringData tolerates an unknown encoding name (not in Encoding::MAP) without error.
     public function testGetCharstringDataReturnsEmptyWhenEncNotInMap(): void
     {
         $instance = $this->buildTypeOne();
@@ -351,6 +359,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertIsArray($result);
     }
 
+    // Verifies a known encoding ('cp1252') causes getCharstringData to load the matching Encoding::MAP into enc_map.
     public function testGetCharstringDataPopulatesEncMapForKnownEncoding(): void
     {
         $instance = $this->buildTypeOne();
@@ -369,6 +378,7 @@ class TypeOneInternalsTest extends TestUtil
     // getCid
     // -------------------------------------------------------------------------
 
+    // Verifies getCid prefers the font's internal map (imap) when the glyph name is present there.
     public function testGetCidReturnsImapValueWhenCharNameFound(): void
     {
         $instance = $this->buildTypeOne();
@@ -378,6 +388,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertSame(65, $result);
     }
 
+    // Verifies getCid returns 0 (.notdef) when the glyph is absent from imap and enc_map is empty.
     public function testGetCidReturnsZeroWhenEncMapEmpty(): void
     {
         $instance = $this->buildTypeOne();
@@ -391,6 +402,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertSame(0, $result);
     }
 
+    // Verifies getCid returns 0 when the glyph name matches neither imap nor any enc_map entry.
     public function testGetCidReturnsZeroWhenCharNotFoundInEncMap(): void
     {
         $instance = $this->buildTypeOne();
@@ -404,6 +416,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertSame(0, $result);
     }
 
+    // Verifies getCid clamps an enc_map CID above 1000 down to 1000 (upper bound on the char index).
     public function testGetCidClampsLargeCidToThousand(): void
     {
         $instance = $this->buildTypeOne();
@@ -424,6 +437,7 @@ class TypeOneInternalsTest extends TestUtil
     // decodeNumber
     // -------------------------------------------------------------------------
 
+    // Verifies Type1 charstring bytes 32-246 decode as single-byte value v-139, e.g. [139] -> 0, advancing idx by 1.
     public function testDecodeNumberHandlesByte32To246(): void
     {
         $instance = $this->buildTypeOne();
@@ -441,6 +455,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertSame(0, $cdec[0] ?? null);
     }
 
+    // Verifies bytes 247-250 decode to a POSITIVE 2-byte number (v-247)*256+w+108, e.g. [247,0] -> 108, idx +2.
     public function testDecodeNumberHandlesBytes247To250(): void
     {
         $instance = $this->buildTypeOne();
@@ -458,6 +473,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertSame(108, $cdec[0] ?? null);
     }
 
+    // Verifies bytes 251-254 decode to a NEGATIVE 2-byte number -(v-251)*256-w-108, e.g. [251,0] -> -108, idx +2.
     public function testDecodeNumberHandlesBytes251To254(): void
     {
         $instance = $this->buildTypeOne();
@@ -475,6 +491,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertSame(-108, $cdec[0] ?? null);
     }
 
+    // Verifies byte 255 consumes the next 4 bytes as a big-endian int and advances idx by 5.
     public function testDecodeNumberHandlesByte255FourByteInt(): void
     {
         $instance = $this->buildTypeOne();
@@ -494,6 +511,7 @@ class TypeOneInternalsTest extends TestUtil
         $this->assertIsInt($cdec[0] ?? null);
     }
 
+    // Verifies the hsbw command (opcode 13) records the glyph's advance width (cdec[cck-1]) into cwidths[cid].
     public function testDecodeNumberHsbwCommandUpdatesWidth(): void
     {
         $instance = $this->buildTypeOne();
@@ -516,6 +534,7 @@ class TypeOneInternalsTest extends TestUtil
     // storeFontData – error paths
     // -------------------------------------------------------------------------
 
+    // Verifies storeFontData rejects font data whose first byte is not the 0x80 PFB segment marker.
     public function testStoreFontDataThrowsOnInvalidMarker(): void
     {
         $instance = $this->buildTypeOne();

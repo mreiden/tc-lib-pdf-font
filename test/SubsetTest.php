@@ -138,6 +138,7 @@ final class SubsetTest extends TestUtil
         return $record[$field];
     }
 
+    // Verifies getTableChecksum() zero-pads a length-3 table to a 4-byte word before summing, so partial trailing words checksum correctly.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     #[Test]
     public function testTableChecksumPadsTrailingBytes(): void
@@ -156,6 +157,7 @@ final class SubsetTest extends TestUtil
         $this->assertSame(0x01020300, $subset->checksum("\x01\x02\x03", 3));
     }
 
+    // Verifies getTableChecksum() sums a full 32-bit word plus a zero-padded partial word and wraps modulo 2^32.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     #[Test]
     public function testTableChecksumHandlesMixedFullAndPartialWords(): void
@@ -179,6 +181,7 @@ final class SubsetTest extends TestUtil
     // removeUnusedTables
     // -------------------------------------------------------------------------
 
+    // Verifies removeUnusedTables() drops tags absent from the keep-list ('xxxx') while retaining required tables ('head').
     #[Test]
     public function testRemoveUnusedTablesDropsUnknownTableTags(): void
     {
@@ -223,6 +226,7 @@ final class SubsetTest extends TestUtil
     // addProcessedTables
     // -------------------------------------------------------------------------
 
+    // Verifies addProcessedTables() rebuilds the loca and glyf tables (with non-zero checksums) by extracting the subset glyph's bytes.
     #[Test]
     public function testAddProcessedTablesBuildsLocaAndGlyfFromSubsetGlyphs(): void
     {
@@ -277,6 +281,7 @@ final class SubsetTest extends TestUtil
         );
     }
 
+    // Verifies buildSubsetFont() writes a correct table-record offset (28 = 12-byte sfnt header + one 16-byte record) for a single-table font.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     #[Test]
     public function testBuildSubsetFontKeepsTableDirectoryOffsetsIntact(): void
@@ -320,6 +325,8 @@ final class SubsetTest extends TestUtil
         $this->assertSame(28, $offset[1]);
     }
 
+    // Verifies addProcessedTables() falls back to the next available loca index for a glyph's
+    // end boundary when the immediate next index is missing, so glyph 0 is not dropped.
     #[Test]
     public function testAddProcessedTablesUsesNextAvailableLocaIndexWhenImmediateIsMissing(): void
     {
@@ -363,6 +370,7 @@ final class SubsetTest extends TestUtil
         $this->assertNotEmpty($this->getTableRecordString($table, 'glyf', 'data'));
     }
 
+    // Verifies addCompositeGlyphs() merges newly discovered composite-child gids into subglyphs under their original numeric keys (here 3283 alongside the seed 853).
     #[Test]
     public function testAddCompositeGlyphsPreservesNumericGlyphIndexes(): void
     {
@@ -416,6 +424,7 @@ final class SubsetTest extends TestUtil
     // path it would exercise, are unreachable. Real behavior is covered by
     // testAddCompositeGlyphsPreservesNumericGlyphIndexes.
 
+    // Verifies findCompositeGlyphs() walks a composite glyph's components, correctly skipping the variable-size X&Y-scale and 2x2-transform fields, to discover child gids 5 and 6.
     #[Test]
     public function testFindCompositeGlyphsParsesScaleAndTwoByTwoComponents(): void
     {
@@ -456,6 +465,8 @@ final class SubsetTest extends TestUtil
         $this->assertArrayHasKey(6, $newSga);
     }
 
+    // Verifies short-format (Offset16) loca is emitted and table DATA is padded to a 4-byte boundary, while each
+    // table-record length stays the ACTUAL unpadded data length (glyf: 3 data bytes -> length 3, data padded to 4) per the OpenType spec.
     #[Test]
     public function testAddProcessedTablesCreatesShortLocaAndPadsTables(): void
     {
@@ -501,6 +512,7 @@ final class SubsetTest extends TestUtil
     }
 
 
+    // Verifies getTableChecksum() reproduces each per-table checkSum and the head checksumAdjustment stored in the original TTF files, validating the checksum algorithm against real fonts.
     #[Test]
     #[DataProvider('subsetDataProvider')]
     public function testChecksums(string $fontdir, string $font): void
@@ -586,6 +598,7 @@ final class SubsetTest extends TestUtil
         ];
     }
 
+    // End-to-end: subsets each real font to a fixed character set and verifies every table checkSum and the head checksumAdjustment in the generated subset are internally consistent.
     #[Test]
     #[DataProvider('subsetDataProvider')]
     public function testSubset(string $fontdir, string $font): void

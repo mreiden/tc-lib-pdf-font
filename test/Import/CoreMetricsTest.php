@@ -183,6 +183,8 @@ class CoreMetricsTest extends TestCase
         ];
     }
 
+    // Verifies cw[winansi_byte] holds the correct Helvetica width, including the 0x80-0x9F named glyphs (Euro, etc.)
+    // that AFM omits from StandardEncoding and that were previously wrong/missing.
     /** @throws FontException */
     #[DataProvider('provideHelveticaWinAnsiWidths')]
     public function testHelveticaWinAnsiWidth(int $cid, int $expected): void
@@ -219,6 +221,8 @@ class CoreMetricsTest extends TestCase
         ];
     }
 
+    // Verifies cwu[unicode_codepoint] holds the correct Helvetica width, including non-WinAnsi glyphs (fi, fl)
+    // that only resolve via the Unicode-keyed map.
     /** @throws FontException */
     #[DataProvider('provideHelveticaUnicodeWidths')]
     public function testHelveticaUnicodeWidth(int $codepoint, int $expected): void

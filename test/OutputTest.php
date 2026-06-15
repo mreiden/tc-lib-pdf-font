@@ -55,6 +55,9 @@ class OutputTest extends TestUtil
         return $encrypt;
     }
 
+    // End-to-end smoke test: feeds one font of every supported flavor (Type1/Core, TrueType,
+    // subsetted TrueType-Unicode, CID0) through Output and checks the object count and that the
+    // fonts block plus both resource-dictionary forms are non-empty.
     /**
      * @throws FileException
      * @throws FontException
@@ -119,6 +122,8 @@ class OutputTest extends TestUtil
         $this->assertNotEmpty($output->getOutFontDictByKeys($keys));
     }
 
+    // Verifies the empty-font-array edge case: the constructor runs without error and every
+    // output accessor returns '' since there is nothing to iterate over.
     /**
      * @throws FileException
      * @throws FontException
@@ -137,6 +142,8 @@ class OutputTest extends TestUtil
         $this->assertSame('', $output->getOutFontDictByKeys([]));
     }
 
+    // Verifies getFontDefinitions() rejects an unrecognized font type via the match default
+    // branch, throwing FontException rather than silently emitting a malformed object.
     /**
      * @throws FileException
      * @throws FontException
@@ -159,6 +166,9 @@ class OutputTest extends TestUtil
         new \Com\Tecnick\Pdf\Font\Output($fonts, 1, $encrypt, null);
     }
 
+    // Verifies a subsetted TrueType-Unicode font emits a valid CIDSystemInfo (Adobe/Identity/0),
+    // not empty Registry/Ordering, and that the embedded font stream carries a real /Length1 (>1000
+    // bytes) so a non-trivial subset glyph program is actually written.
     /**
      * @throws FileException
      * @throws FontException
@@ -196,6 +206,9 @@ class OutputTest extends TestUtil
         $this->assertGreaterThan(1000, \max($lengths));
     }
 
+    // Verifies that when two fonts share the same file, their subsetchars are unioned (not
+    // array_merge'd) so the integer Unicode keys survive, and that chars flagged 0/false are
+    // dropped by array_filter. Inspects the protected $subchars map via reflection.
     /**
      * @throws FileException
      * @throws FontException
@@ -248,6 +261,8 @@ class OutputTest extends TestUtil
         $this->assertArrayNotHasKey(9999, $first);
     }
 
+    // Verifies uniToCid() remaps char widths from Unicode code points to their mapped CID keys
+    // (via cidinfo['uni2cid']), keeping the numeric CID keys and the original widths intact.
     #[Test]
     public function testUniToCidPreservesNumericCidKeys(): void
     {
@@ -274,6 +289,8 @@ class OutputTest extends TestUtil
         $this->assertSame(600, $font['cw'][3283] ?? null);
     }
 
+    // Verifies getFontFullPath() throws FontException when the named file is not found in any of
+    // its search directories, rather than returning a bogus path.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     #[Test]
     public function testGetFontFullPathThrowsForMissingFile(): void
@@ -284,6 +301,8 @@ class OutputTest extends TestUtil
         $outfont->runGetFontFullPath($this->getFontPath(), 'not-here.bin');
     }
 
+    // Verifies that subsetting a font whose file data is not gzip-compressed fails: getFontFiles()
+    // runs Compression::uncompress() on subset fonts, and bad data surfaces as a FontException.
     /**
      * @throws FileException
      * @throws FontException
@@ -317,6 +336,8 @@ class OutputTest extends TestUtil
         }
     }
 
+    // Verifies a non-subset TrueType simple font emits /Subtype/TrueType and falls back to
+    // /Encoding/WinAnsiEncoding when no encoding Differences object is present.
     /**
      * @throws FileException
      * @throws FontException
@@ -343,6 +364,8 @@ class OutputTest extends TestUtil
         $this->assertStringContainsString('/Encoding /WinAnsiEncoding', $block);
     }
 
+    // Verifies getKeyValOut() renders a float value with %F (fixed 6 decimals, locale-independent),
+    // e.g. ItalicAngle 12.5 -> ' /ItalicAngle 12.500000'.
     #[Test]
     public function testGetKeyValOutFormatsFloatValues(): void
     {
@@ -351,6 +374,8 @@ class OutputTest extends TestUtil
         $this->assertSame(' /ItalicAngle 12.500000', $out);
     }
 
+    // Verifies a CIDFont0 font with no width for glyph 1 (which triggers getCid0's cidoffset=31
+    // path) still emits the expected Type0 wrapper and CIDFontType0 descendant subtypes.
     /**
      * @throws FileException
      * @throws FontException
@@ -383,6 +408,8 @@ class OutputTest extends TestUtil
         $this->assertStringContainsString('/Subtype /CIDFontType0', $block);
     }
 
+    // Verifies a font whose char-widths array is empty still produces a non-empty fonts block
+    // (getCharWidths returns '' on the empty loop without breaking object generation).
     #[Test]
     public function testOutputNoCharWidths(): void
     {
@@ -415,6 +442,8 @@ class OutputTest extends TestUtil
         $this->assertNotEmpty($output->getFontsBlock());
     }
 
+    // Verifies that pointing a font entry at a non-existent file makes Output throw FontException
+    // (getFontFiles can't locate/read the file) instead of emitting a broken font object.
     #[Test]
     public function testOutputMissingFontFile(): void
     {

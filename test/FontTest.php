@@ -29,6 +29,8 @@ namespace Test;
  */
 class FontTest extends TestUtil
 {
+    // Verifies the constructor rejects a path-traversal ifile ('../font.json') via the file helper's
+    // safety check, preventing font definitions from being loaded outside allowed paths.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testFontRejectsUnsafeInputDefinitionPath(): void
     {

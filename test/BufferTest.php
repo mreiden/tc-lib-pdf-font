@@ -38,6 +38,7 @@ use PHPUnit\Framework\Attributes\Test;
  */
 class BufferTest extends TestUtil
 {
+    // Verifies isSubsetMode() defaults to false and otherwise reflects the subset flag passed to the constructor.
     #[Test]
     public function testStackDefaultSubsetMode(): void
     {
@@ -52,6 +53,7 @@ class BufferTest extends TestUtil
         $this->assertSame(true, $stack->isSubsetMode());
     }
 
+    // Verifies addSubsetChar() throws when the target font has not been loaded into the buffer.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     #[Test]
     public function testAddSubsetCharOnMissingFontThrows(): void
@@ -63,6 +65,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    // Verifies getFont() throws when asked for a key that is not present in the buffer.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testStackMissingKey(): void
     {
@@ -72,6 +75,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    // Verifies add() throws when given an empty font family name.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testStackMissingFontName(): void
     {
@@ -82,6 +86,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    // Verifies add() throws when the explicitly supplied definition file path does not exist.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testStackIFileMissing(): void
     {
@@ -92,6 +97,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    // Verifies add() throws when the definition file is not valid JSON (here, a PHP source file).
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testStackIFileNotJson(): void
     {
@@ -102,6 +108,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    // Verifies add() throws when the JSON parses but lacks required font fields (missing 'type').
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testStackIFileWrongFormat(): void
     {
@@ -114,6 +121,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    // Verifies add() rejects a definition path containing '..' traversal segments (path-traversal guard).
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadFileDoubleDots(): void
     {
@@ -124,6 +132,7 @@ class BufferTest extends TestUtil
         $stack->add($objnum, 'test', '', $this->getFontPath() . '../test.json');
     }
 
+    // Verifies add() rejects a disallowed URL scheme (gopher://) for the definition file.
     #[Test]
     public function testLoadFileForbiddenProtocol(): void
     {
@@ -134,6 +143,7 @@ class BufferTest extends TestUtil
         $stack->add($objnum, 'test', '', 'gopher://test.json');
     }
 
+    // Verifies a local font definition loads successfully when referenced via the allowed file:// scheme.
     #[Test]
     public function testLoadFileProtocol(): void
     {
@@ -152,6 +162,7 @@ class BufferTest extends TestUtil
         $this->assertNotEmpty($font);
     }
 
+    // Verifies the file:// scheme is matched case-insensitively (e.g. 'FiLe://') when loading a definition.
     #[Test]
     public function testLoadFileProtocolCaseInsensitive(): void
     {
@@ -170,6 +181,7 @@ class BufferTest extends TestUtil
         $this->assertNotEmpty($font);
     }
 
+    // Verifies default width (dw) falls back to 600 when no MissingWidth and no cw[32] are available.
     #[Test]
     public function testLoadDefaultWidthA(): void
     {
@@ -183,6 +195,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    // Verifies default width (dw) is taken from the space glyph width cw[32] when MissingWidth is absent.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadDefaultWidthB(): void
     {
@@ -196,6 +209,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    // Verifies default width (dw) prefers desc.MissingWidth over cw when it is greater than zero.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadDefaultWidthC(): void
     {
@@ -212,6 +226,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    // Verifies add() throws when the definition declares an unrecognized font type.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadWrongType(): void
     {
@@ -225,6 +240,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    // Verifies add() throws for a non-embedded CID0 font in PDF/A mode, where all fonts must be embedded.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadCidOnPdfa(): void
     {
@@ -238,6 +254,7 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    // Verifies a Core font flagged fakestyle with bold+italic loads successfully and returns a non-empty key.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadArtificialStyles(): void
     {
@@ -257,6 +274,8 @@ class BufferTest extends TestUtil
      * @throws \Com\Tecnick\Pdf\Font\Exception
      * @throws \RangeException
      */
+    // End-to-end: imports and adds real Type1/Core/TrueTypeUnicode fonts (incl. style variants and subsets),
+    // asserting object numbering, font/encoding-diff counts, and resolved name/type for loaded keys.
     #[Test]
     public function testBuffer(): void
     {
@@ -311,6 +330,8 @@ class BufferTest extends TestUtil
     }
 
     #[Test]
+    // Verifies that in PDF/A mode an embedded core-substitute font ('arial' -> pdfahelvetica) loads
+    // under its PDF/A-prefixed key, confirming core fonts are remapped for embedding.
     /**
      * @throws \Com\Tecnick\File\Exception
      * @throws \Com\Tecnick\Pdf\Font\Exception
@@ -329,6 +350,7 @@ class BufferTest extends TestUtil
         $this->assertNotEmpty($font);
     }
 
+    // Verifies addSubsetChar() succeeds (no error) for a character on a font that has been loaded.
     #[Test]
     public function testSubsetChar(): void
     {
@@ -342,6 +364,7 @@ class BufferTest extends TestUtil
         $stack->addSubsetChar($font['key'], \ord('A'));
     }
 
+    // Verifies addSubsetChar() throws when invoked for a font key that was never loaded into the buffer.
     #[Test]
     public function testSubsetCharOnNotLoadedFont(): void
     {

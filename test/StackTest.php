@@ -39,6 +39,8 @@ use PHPUnit\Framework\Attributes\Test;
  */
 class StackTest extends TestUtil
 {
+    // End-to-end test of the font stack: insert/clone/pop fonts (TrueType, Type1),
+    // and verify metrics, char widths/bboxes, char replacement, text measurement, and family-name resolution.
     /**
      * @throws FileException
      * @throws FontException
@@ -189,6 +191,7 @@ class StackTest extends TestUtil
         $this->assertEquals('pdfacourier', $fname);
     }
 
+    // Verifies popLastFont() throws when the stack is empty (no font ever inserted).
     /** @throws FontException */
     #[Test]
     public function testEmptyStack(): void
@@ -198,6 +201,7 @@ class StackTest extends TestUtil
         $stack->popLastFont();
     }
 
+    // Verifies insert() throws when the requested font cannot be loaded/found.
     /** @throws FontException */
     #[Test]
     public function testStackMissingFont(): void
@@ -208,6 +212,7 @@ class StackTest extends TestUtil
         $stack->insert($objnum, 'missing');
     }
 
+    // Verifies cloneFont() rejects a negative font index with a FontException.
     #[Test]
     public function testStackCloneNegativeIndex(): void
     {
@@ -225,6 +230,7 @@ class StackTest extends TestUtil
         $stack->cloneFont($objnum, -1);
     }
 
+    // Verifies cloneFont() rejects a font index greater than the current top of stack.
     #[Test]
     public function testStackCloneIndexTooBig(): void
     {
@@ -242,6 +248,8 @@ class StackTest extends TestUtil
         $stack->cloneFont($objnum, 1);
     }
 
+    // Verifies hasCurrentFont()/getStackSize()/getCurrentFontIndex() track stack state correctly
+    // as fonts are inserted, cloned, and popped (empty -> populated -> empty).
     /**
      * @throws FileException
      * @throws FontException
@@ -281,6 +289,8 @@ class StackTest extends TestUtil
         $this->assertSame(-1, $stack->getCurrentFontIndex());
     }
 
+    // Verifies measuring text via getOrdArrDims() registers non-Latin BMP codepoints (pi, almost-equal)
+    // in the font's subsetchars, so they get embedded when the font is subset.
     /**
      * @throws FileException
      * @throws FontException
@@ -308,6 +318,8 @@ class StackTest extends TestUtil
         $this->assertArrayHasKey(8776, $currentFont['subsetchars']);
     }
 
+    // Verifies fractional font sizes (10.5, 11.25) are preserved through insert()/cloneFont()
+    // and rendered correctly into the PDF font-selection 'out' string.
     /**
      * @throws FileException
      * @throws FontException
@@ -334,6 +346,7 @@ class StackTest extends TestUtil
         $this->assertEquals("BT /F1 11.250000 Tf ET\r", $clone['out']);
     }
 
+    // Verifies cloneFont() rejects an out-of-range index (99) when only one font is on the stack.
     /**
      * @throws FileException
      * @throws FontException
@@ -354,6 +367,8 @@ class StackTest extends TestUtil
         $stack->cloneFont($objnum, 99);
     }
 
+    // Verifies replaceMissingChars() leaves a char untouched when no substitutes are supplied,
+    // even if that char is undefined in the font.
     /**
      * @throws FileException
      * @throws FontException
@@ -373,6 +388,7 @@ class StackTest extends TestUtil
         $this->assertSame([400], $stack->replaceMissingChars([400], []));
     }
 
+    // Verifies getFontFamilyName() throws on an empty family-name string.
     /** @throws FontException */
     #[Test]
     public function testGetFontFamilyNameRejectsEmptyString(): void
@@ -384,6 +400,7 @@ class StackTest extends TestUtil
         $stack->getFontFamilyName('');
     }
 
+    // Verifies getCharWidth() throws when no current font is set (empty stack -> invalid index).
     /** @throws FontException */
     #[Test]
     public function testGetCharWidthFailsWithoutCurrentFont(): void
@@ -395,6 +412,8 @@ class StackTest extends TestUtil
         $stack->getCharWidth(65);
     }
 
+    // Verifies a malformed cbbox entry (only 3 of 4 coords) is ignored, so getCharBBox()
+    // falls back to the zero box instead of producing a broken bounding box.
     /** @throws FontException */
     #[Test]
     public function testMalformedCharBoxDataIsIgnored(): void

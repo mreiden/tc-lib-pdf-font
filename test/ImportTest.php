@@ -39,6 +39,7 @@ use PHPUnit\Framework\Attributes\Test;
  */
 class ImportTest extends TestUtil
 {
+    // Verifies a stream-wrapper path (phar://) is rejected, blocking remote/protocol-based font loading.
     #[Test]
     public function testImportForbiddenProtocol(): void
     {
@@ -46,6 +47,7 @@ class ImportTest extends TestUtil
         new Import('phar://test.txt');
     }
 
+    // Verifies a path containing ".." is rejected, preventing path-traversal outside allowed roots.
     #[Test]
     public function testImportParentDir(): void
     {
@@ -53,6 +55,7 @@ class ImportTest extends TestUtil
         new Import('/tmp/something/../test.txt');
     }
 
+    // Verifies an empty file path is rejected rather than producing an empty font name.
     #[Test]
     public function testImportEmptyName(): void
     {
@@ -60,6 +63,7 @@ class ImportTest extends TestUtil
         new Import('');
     }
 
+    // Verifies re-importing a font whose .json already exists throws, so prior output is never silently overwritten.
     /**
      * Exception when an already imported font is imported again
      */
@@ -75,6 +79,7 @@ class ImportTest extends TestUtil
         new Import($fin, $outdir);
     }
 
+    // Verifies importing a nonexistent font file throws instead of failing later on a missing read.
     #[Test]
     public function testImportWrongFile(): void
     {
@@ -82,6 +87,7 @@ class ImportTest extends TestUtil
         new Import(\dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/core/Missing.afm');
     }
 
+    // Verifies a nonexistent font still throws when no output path is given (default-output code path).
     #[Test]
     public function testImportDefaultOutput(): void
     {
@@ -89,6 +95,7 @@ class ImportTest extends TestUtil
         new Import(\dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/core/Missing.afm');
     }
 
+    // Verifies an unknown explicit font type ('ERROR') is rejected by getFontType().
     #[Test]
     public function testImportUnsupportedType(): void
     {
@@ -100,6 +107,7 @@ class ImportTest extends TestUtil
         new Import($fin, $outdir, 'ERROR');
     }
 
+    // Verifies an OpenType file with CFF data (OTTO magic) is rejected during autodetect, as it is unsupported.
     #[Test]
     public function testImportUnsupportedOpenType(): void
     {
@@ -111,6 +119,8 @@ class ImportTest extends TestUtil
         new Import($outdir . 'test.ttf', $outdir);
     }
 
+    // Verifies importing each real font (Core/Type1/TrueType/Unicode/CID0) yields the expected normalized name
+    // and writes a JSON whose descriptor fields match the in-memory font metrics.
     #[Test]
     #[DataProvider('importDataProvider')]
     public function testImport(

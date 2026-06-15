@@ -29,6 +29,8 @@ namespace Test;
  */
 class LoadTest extends TestUtil
 {
+    // Verifies that when a bold+italic variant file is missing, load() synthesizes artificial styles:
+    // appends Bold/Italic to the name and seeds default StemV/ItalicAngle/Flags from zero baselines.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadAppliesFallbackStylesForMissingVariantFiles(): void
     {
@@ -43,6 +45,8 @@ class LoadTest extends TestUtil
         $this->assertSame(64, $load->getFlagsValue());
     }
 
+    // Verifies artificial bold/italic adjusts pre-existing metrics rather than resetting them:
+    // StemV scaled x1.75, ItalicAngle shifted by -11, and bit 7 (64) OR-ed into Flags.
     /** @throws \Com\Tecnick\Pdf\Font\Exception */
     public function testLoadUpdatesExistingBoldAndItalicMetrics(): void
     {

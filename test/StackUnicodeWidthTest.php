@@ -54,6 +54,7 @@ class StackUnicodeWidthTest extends TestUtil
         return $stack;
     }
 
+    // Verifies getCharWidth() resolves the em-dash (U+2014) via the cwu Unicode table, not the byte table.
     /**
      * @throws FileException
      * @throws FontException
@@ -66,6 +67,7 @@ class StackUnicodeWidthTest extends TestUtil
         $this->bcAssertEqualsWithDelta(10.0, $stack->getCharWidth(0x2014), 0.001);
     }
 
+    // Verifies getCharWidth() resolves the en-dash (U+2013) via the cwu Unicode table.
     /**
      * @throws FileException
      * @throws FontException
@@ -78,6 +80,7 @@ class StackUnicodeWidthTest extends TestUtil
         $this->bcAssertEqualsWithDelta(5.56, $stack->getCharWidth(0x2013), 0.001);
     }
 
+    // Verifies getCharWidth() resolves the bullet (U+2022) via the cwu Unicode table.
     /**
      * @throws FileException
      * @throws FontException
@@ -90,6 +93,7 @@ class StackUnicodeWidthTest extends TestUtil
         $this->bcAssertEqualsWithDelta(3.5, $stack->getCharWidth(0x2022), 0.001);
     }
 
+    // Verifies getCharWidth() resolves the Euro sign (U+20AC) via the cwu Unicode table.
     /**
      * @throws FileException
      * @throws FontException
@@ -102,6 +106,8 @@ class StackUnicodeWidthTest extends TestUtil
         $this->bcAssertEqualsWithDelta(5.56, $stack->getCharWidth(0x20AC), 0.001);
     }
 
+    // Sanity check: getCharWidth() still resolves an ASCII char (space U+0020), guarding against
+    // a regression where the cwu path breaks plain byte-range widths.
     /**
      * @throws FileException
      * @throws FontException
@@ -114,6 +120,7 @@ class StackUnicodeWidthTest extends TestUtil
         $this->bcAssertEqualsWithDelta(2.78, $stack->getCharWidth(0x20), 0.001);
     }
 
+    // Verifies getCharWidth() returns 0 for the soft hyphen (U+00AD), which is non-printing (hyphenation only).
     /**
      * @throws FileException
      * @throws FontException
@@ -125,6 +132,7 @@ class StackUnicodeWidthTest extends TestUtil
         $this->assertSame(0.0, $stack->getCharWidth(0xAD));
     }
 
+    // Verifies getCharWidth() returns 0 for the zero-width space (U+200B), which has no visible advance.
     /**
      * @throws FileException
      * @throws FontException

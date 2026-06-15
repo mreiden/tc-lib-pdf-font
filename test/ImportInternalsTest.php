@@ -62,6 +62,7 @@ class ImportInternalsTest extends TestUtil
     // updateCIDtoGIDmap
     // -------------------------------------------------------------------------
 
+    // Verifies updateCIDtoGIDmap() writes the glyph id as 2 big-endian bytes at offset cid*2.
     public function testUpdateCIDtoGIDmapSetsGlyphPairBytes(): void
     {
         $instance = $this->buildImport();
@@ -73,6 +74,7 @@ class ImportInternalsTest extends TestUtil
         $this->assertSame(42, ord($result[(65 * 2) + 1]));
     }
 
+    // Verifies a CID outside 0..0xFFFF is ignored, leaving the map unchanged (no out-of-bounds write).
     public function testUpdateCIDtoGIDmapIgnoresCidOutOfRange(): void
     {
         $instance = $this->buildImport();
@@ -82,6 +84,7 @@ class ImportInternalsTest extends TestUtil
         $this->assertSame($map, $result);
     }
 
+    // Verifies a gid above 0xFFFF wraps by subtracting 0x10000 so it fits in the 16-bit map entry.
     public function testUpdateCIDtoGIDmapTruncatesGidAbove0xffff(): void
     {
         $instance = $this->buildImport();
@@ -92,6 +95,7 @@ class ImportInternalsTest extends TestUtil
         $this->assertSame(42, ord($result[1]));
     }
 
+    // Verifies a negative gid is ignored, leaving the map unchanged.
     public function testUpdateCIDtoGIDmapIgnoresNegativeGid(): void
     {
         $instance = $this->buildImport();
@@ -105,6 +109,7 @@ class ImportInternalsTest extends TestUtil
     // getEncodingTable
     // -------------------------------------------------------------------------
 
+    // Verifies getEncodingTable() defaults a non-symbolic Type1 font (Flags & 4 == 0) to cp1252.
     public function testGetEncodingTableReturnsCp1252ForType1NonSymbolic(): void
     {
         $instance = $this->buildImport();
@@ -114,6 +119,7 @@ class ImportInternalsTest extends TestUtil
         $this->assertSame('cp1252', $result);
     }
 
+    // Verifies a symbolic Type1 font (Flags & 4 != 0) gets no default encoding (empty string).
     public function testGetEncodingTableReturnsEmptyForType1Symbolic(): void
     {
         $instance = $this->buildImport();
@@ -123,6 +129,7 @@ class ImportInternalsTest extends TestUtil
         $this->assertSame('', $result);
     }
 
+    // Verifies a TrueTypeUnicode font with empty encoding gets no default encoding (empty string).
     public function testGetEncodingTableReturnsEmptyForTrueTypeUnicode(): void
     {
         $instance = $this->buildImport();
@@ -131,6 +138,7 @@ class ImportInternalsTest extends TestUtil
         $this->assertSame('', $result);
     }
 
+    // Verifies an explicitly supplied encoding name is sanitized and passed through unchanged.
     public function testGetEncodingTablePassesThroughExplicitEncoding(): void
     {
         $instance = $this->buildImport();
@@ -143,6 +151,7 @@ class ImportInternalsTest extends TestUtil
     // findOutputPath
     // -------------------------------------------------------------------------
 
+    // Verifies findOutputPath() falls back to the K_PATH_FONTS constant when no output path is given.
     public function testFindOutputPathReturnsKPathFontsWhenDefined(): void
     {
         $this->setupTest();
@@ -151,6 +160,7 @@ class ImportInternalsTest extends TestUtil
         $this->assertSame(constant('K_PATH_FONTS'), $result);
     }
 
+    // Verifies a caller-supplied writable directory is used as the output path in preference to defaults.
     public function testFindOutputPathReturnsProvidedWritablePath(): void
     {
         $outdir = dirname(__DIR__) . '/target/tmptest/internals/';
