@@ -497,6 +497,9 @@ class Core
         }
 
         $this->setCharWidths($cwd);
+
+        // Publish the Unicode-keyed widths accumulated while parsing the rows above.
+        $this->fdt['cwu'] = $this->cwu;
     }
 
     /**
@@ -522,12 +525,25 @@ class Core
         } elseif ($col[0] == 'FontBBox') {
             $this->fdt['FontBBox'] = [(int) $col[1], (int) $col[2], (int) $col[3], (int) $col[4]];
         } elseif ($col[0] == 'C') {
-            $cid = (int) $col[1];
-            if ($cid >= 0) {
-                $cwd[$cid] = (int) $col[4];
+            // AFM CharMetrics row: "C <code> ; WX <width> ; N <name> ; B <llx> <lly> <urx> <ury> ;"
+            $width = (int) $col[4];
+            $name = $col[7] ?? '';
+
+            // AFM codes follow StandardEncoding and omit the WinAnsi 0x80-0x9F range, so resolve each
+            // glyph to its WinAnsi byte by name ($cw is indexed by WinAnsi byte position, not AFM code).
+            $winAnsiByte = self::getWinAnsiByName()[$name] ?? null;
+            if ($winAnsiByte !== null) {
+                $cwd[$winAnsiByte] = $width;
                 if (!empty($col[14])) {
-                    $this->fdt['cbbox'][$cid] = [(int) $col[10], (int) $col[11], (int) $col[12], (int) $col[13]];
+                    $this->fdt['cbbox'][$winAnsiByte] =
+                        [(int) $col[10], (int) $col[11], (int) $col[12], (int) $col[13]];
                 }
+            }
+
+            // Also index the width by Unicode codepoint so non-WinAnsi glyphs (e.g. fi, fl) resolve.
+            $codepoint = self::GLYPH_UNICODE[$name] ?? null;
+            if ($codepoint !== null) {
+                $this->cwu[$codepoint] = $width;
             }
         } elseif (\in_array($col[0], $integerValueKeys)) {
             $this->fdt[$col[0]] = (int) $col[1];
