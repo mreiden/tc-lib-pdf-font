@@ -357,7 +357,7 @@ class TypeOne extends Core
         }
 
         if ($ccom[$idx] >= 251) {
-            $cdec[$cck] = -(($ccom[$idx] - 251) * 256 - $ccom[$idx + 1] - 108);
+            $cdec[$cck] = -(($ccom[$idx] - 251) * 256) - $ccom[$idx + 1] - 108;
             return $idx + 2;
         }
 
