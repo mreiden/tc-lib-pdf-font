@@ -337,8 +337,8 @@ abstract class Load
      */
     protected function findFontFile(): void
     {
-        if ($this->data['ifile'] !== '') {
-            $this->data['dir'] = \dirname($this->data['ifile']);
+        if ($this->fdt['ifile'] !== '') {
+            $this->fdt['dir'] = \dirname($this->fdt['ifile']);
             return;
         }
 
@@ -366,17 +366,15 @@ abstract class Load
 
     protected function setDefaultWidth(): void
     {
-        if ($this->data['dw'] !== 0) {
+        if ($this->fdt['dw'] !== 0) {
             return;
         }
 
-        if ($this->fdt['desc']['MissingWidth'] > 0) {
-            $this->fdt['dw'] = $this->fdt['desc']['MissingWidth'];
-        } elseif (!empty($this->fdt['cw'][32])) {
-            $this->fdt['dw'] = $this->fdt['cw'][32];
-        } else {
-            $this->fdt['dw'] = 600;
-        }
+        $this->fdt['dw'] = match(true) {
+            $this->fdt['desc']['MissingWidth'] > 0 => $this->fdt['desc']['MissingWidth'],
+            !empty($this->fdt['cw'][32]) => $this->fdt['cw'][32],
+            default => 600
+        };
     }
 
     /**
@@ -412,7 +410,7 @@ abstract class Load
         }
 
         if ($this->fdt['name'] === '') {
-            $this->fdt['name'] = $this->data['key'];
+            $this->fdt['name'] = $this->fdt['key'];
         }
     }
 
