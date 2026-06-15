@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Com\Tecnick\Pdf\Font;
 
 use Com\Tecnick\File\Dir;
+use Com\Tecnick\File\Exception as FileException;
 use Com\Tecnick\File\File as ObjFile;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
 use Com\Tecnick\Pdf\Font\Enum\FontTypes;
@@ -227,6 +228,7 @@ abstract class Load
     /**
      * Load the font data
      *
+     * @throws FileException in case of error
      * @throws FontException in case of error
      */
     public function load(): void
@@ -245,6 +247,7 @@ abstract class Load
     /**
      * Load the font data
      *
+     * @throws FileException in case of error
      * @throws FontException in case of error
      */
     protected function getFontInfo(): void
@@ -292,6 +295,18 @@ abstract class Load
             $glb = \glob(K_PATH_FONTS . DIRECTORY_SEPARATOR . '*', GLOB_ONLYDIR);
             if ($glb !== false) {
                 $dirs = [...$dirs, ...$glb];
+            }
+        }
+
+        // Include the library's bundled input fonts and the bulk-converted output fonts
+        // (FontPaths::getOutputPath(), e.g. target/fonts) so they are discoverable without K_PATH_FONTS.
+        foreach ([FontPaths::getInputPath(), FontPaths::getOutputPath()] as $base) {
+            if (\is_dir($base)) {
+                $dirs[] = $base;
+                $glb = \glob($base . DIRECTORY_SEPARATOR . '*', GLOB_ONLYDIR);
+                if ($glb !== false) {
+                    $dirs = [...$dirs, ...$glb];
+                }
             }
         }
 
