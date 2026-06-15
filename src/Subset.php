@@ -132,7 +132,7 @@ class Subset
     /**
      * Array containing subset glyphIds from cmap table
      *
-     * @var array<int, bool|int|GlyphType::CompositeChildWithoutCharacterCode|GlyphType::NotdefGlyph>
+     * @var array<int, int|GlyphType::CompositeChildWithoutCharacterCode|GlyphType::NotdefGlyph>
      */
     protected array $subglyphs = [];
 
@@ -316,10 +316,10 @@ class Subset
     /**
      * Find composite glyphs
      *
-     * @param array<int, bool|int|GlyphType::CompositeChildWithoutCharacterCode|GlyphType::NotdefGlyph> $new_sga
+     * @param array<int, int|GlyphType::CompositeChildWithoutCharacterCode|GlyphType::NotdefGlyph> $new_sga
      * @param int $key
      *
-     * @return array<int, bool|int|GlyphType::CompositeChildWithoutCharacterCode|GlyphType::NotdefGlyph>
+     * @return array<int, int|GlyphType::CompositeChildWithoutCharacterCode|GlyphType::NotdefGlyph>
      */
     protected function findCompositeGlyphs(array $new_sga, int $key): array
     {
