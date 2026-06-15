@@ -21,44 +21,44 @@ class LoadTestHarness extends \Com\Tecnick\Pdf\Font\Load
     public function __construct(string $key, string $name)
     {
         parent::__construct();
-        $this->data['type'] = 'TrueType';
-        $this->data['key'] = $key;
-        $this->data['name'] = $name;
-        $this->data['fakestyle'] = true;
-        $this->data['cw'][32] = 500;
+        $this->fdt['type'] = 'TrueType';
+        $this->fdt['key'] = $key;
+        $this->fdt['name'] = $name;
+        $this->fdt['fakestyle'] = true;
+        $this->fdt['cw'][32] = 500;
     }
 
     public function setModeAndMetrics(bool $bold, bool $italic, int $stemv, int $italicAngle, int $flags): void
     {
-        $this->data['mode']['bold'] = $bold;
-        $this->data['mode']['italic'] = $italic;
-        $this->data['mode']['linethrough'] = false;
-        $this->data['mode']['overline'] = false;
-        $this->data['mode']['underline'] = false;
-        $this->data['desc']['StemV'] = $stemv;
-        $this->data['desc']['ItalicAngle'] = $italicAngle;
-        $this->data['desc']['Flags'] = $flags;
-        $this->data['desc']['MissingWidth'] = 0;
+        $this->fdt['mode']['bold'] = $bold;
+        $this->fdt['mode']['italic'] = $italic;
+        $this->fdt['mode']['linethrough'] = false;
+        $this->fdt['mode']['overline'] = false;
+        $this->fdt['mode']['underline'] = false;
+        $this->fdt['desc']['StemV'] = $stemv;
+        $this->fdt['desc']['ItalicAngle'] = $italicAngle;
+        $this->fdt['desc']['Flags'] = $flags;
+        $this->fdt['desc']['MissingWidth'] = 0;
     }
 
     public function getNameValue(): string
     {
-        return $this->data['name'];
+        return $this->fdt['name'];
     }
 
     public function getStemVValue(): int
     {
-        return $this->data['desc']['StemV'];
+        return $this->fdt['desc']['StemV'];
     }
 
     public function getItalicAngleValue(): int
     {
-        return $this->data['desc']['ItalicAngle'];
+        return $this->fdt['desc']['ItalicAngle'];
     }
 
     public function getFlagsValue(): int
     {
-        return $this->data['desc']['Flags'];
+        return $this->fdt['desc']['Flags'];
     }
 
     protected function getFontInfo(): void
