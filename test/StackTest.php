@@ -338,12 +338,12 @@ class StackTest extends TestUtil
         $font = $stack->insert($objnum, 'freesans', '', 10.5);
 
         $this->bcAssertEqualsWithDelta(10.5, $font['size'], 0.0001);
-        $this->assertEquals("BT /F1 10.500000 Tf ET\r", $font['out']);
+        $this->assertEquals("BT /F1 10.500000 Tf ET\n", $font['out']);
 
         $clone = $stack->cloneFont($objnum, null, null, 11.25);
 
         $this->bcAssertEqualsWithDelta(11.25, $clone['size'], 0.0001);
-        $this->assertEquals("BT /F1 11.250000 Tf ET\r", $clone['out']);
+        $this->assertEquals("BT /F1 11.250000 Tf ET\n", $clone['out']);
     }
 
     // Verifies cloneFont() rejects an out-of-range index (99) when only one font is on the stack.
