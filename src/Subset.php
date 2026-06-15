@@ -468,7 +468,9 @@ class Subset
         // Sort the array by the new glyph id (array index 1 which is $numGlyphs below)
         uasort($subGlyphsAsTuples, fn(array $item1, array $item2): int => $item1[1] <=> $item2[1]);
         foreach ($subGlyphsAsTuples as [$gidOld, $numGlyphs, $chrCode]) {
-            if (!isset($indexToLoc[$gidOld + 1])) {
+            // Previous util/convert versions did not fully populate indexToLoc and would skip indexes with no glyph data.
+            $gidNextLocaIdx = $gidOld + 1;
+            if (!isset($indexToLoc[$gidNextLocaIdx]) && !($gidNextLocaIdx = $this->getNextLocaIndex($gidNextLocaIdx+1))) {
                 throw new FontException("Cannot find ending offset for glyph number $gidOld");
             }
 
@@ -477,7 +479,7 @@ class Subset
 
             // Add glyph to the array of new glyphs
             $glyphIdArray[$gidOld] = $numGlyphs;
-            $length = $indexToLoc[$gidOld + 1] - $indexToLoc[$gidOld];
+            $length = $indexToLoc[$gidNextLocaIdx] - $indexToLoc[$gidOld];
             // Add the bits for the glyph to the new glyf table data
             if ($length > 0) {
                 $glyf['data'] .= \substr($this->font, $glyf['offset'] + $indexToLoc[$gidOld], $length);
