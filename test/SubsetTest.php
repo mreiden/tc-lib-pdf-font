@@ -408,51 +408,13 @@ final class SubsetTest extends TestUtil
         $this->assertArrayHasKey(3283, $subglyphs);
     }
 
-    #[Test]
-    public function testAddCompositeGlyphsSkipsDisabledDerivedGlyphs(): void
-    {
-        $subset = new class() extends \Com\Tecnick\Pdf\Font\Subset {
-            private bool $first = true;
-
-            public function __construct() {}
-
-            public function run(): void
-            {
-                $this->addCompositeGlyphs();
-            }
-
-            /** @return array<int, bool> */
-            public function getSubglyphs(): array
-            {
-                return $this->subglyphs;
-            }
-
-            /**
-             * @param array<int, bool> $new_sga
-             * @param int              $key
-             *
-             * @return array<int, bool>
-             */
-            protected function findCompositeGlyphs(array $new_sga, int $key): array
-            {
-                if ($this->first) {
-                    $this->first = false;
-                    $new_sga[400] = false;
-                    $new_sga[401] = true;
-                }
-
-                return $new_sga;
-            }
-        };
-
-        $this->setProp($subset, 'subglyphs', [100 => true]);
-        $subset->run();
-
-        $subglyphs = $subset->getSubglyphs();
-        $this->assertArrayHasKey(100, $subglyphs);
-        $this->assertArrayHasKey(401, $subglyphs);
-        $this->assertArrayNotHasKey(400, $subglyphs);
-    }
+    // Removed upstream test: testAddCompositeGlyphsSkipsDisabledDerivedGlyphs.
+    // It fabricated a $new_sga value of false (400 => false) to assert that "disabled" derived glyphs are
+    // skipped. That case cannot occur in this fork: findCompositeGlyphs() only ever stores an int char code
+    // or GlyphType::CompositeChildWithoutCharacterCode (never a bool), and addCompositeGlyphs() merges
+    // discovered children by array union with no enabled/disabled filtering — so a false value, and the skip
+    // path it would exercise, are unreachable. Real behavior is covered by
+    // testAddCompositeGlyphsPreservesNumericGlyphIndexes.
 
     #[Test]
     public function testFindCompositeGlyphsParsesScaleAndTwoByTwoComponents(): void
