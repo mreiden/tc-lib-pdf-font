@@ -78,6 +78,7 @@ trait FontDataTrait
         'ctg' => '',
         'ctgdata' => [],
         'cw' => [],
+        'cwu' => [],
         'datafile' => '',
         'desc' => [
             'Ascent' => 0,
