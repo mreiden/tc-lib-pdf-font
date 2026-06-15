@@ -121,6 +121,7 @@ class Import
         int $encoding_id = 1,
         bool $linked = false,
         ?ObjFile $fileHelper = null,
+        bool $save = true,
     ) {
         $this->ownsFileHelper = $fileHelper === null;
         $this->fileHelper = $fileHelper ?? new ObjFile(allowedPaths: self::buildAllowedPaths($file));
@@ -313,8 +314,7 @@ class Import
         // Create JSON file data
         $pfile = $this->createFontJSON();
         // Save JSON file
-        $file = new File();
-        $fpt = $file->fopenLocal($this->fdt['datafile'], 'wb');
+        $fpt = $this->fileHelper->fopenLocal($this->fdt['datafile'], 'wb');
         \fwrite($fpt, $pfile);
         \fclose($fpt);
     }

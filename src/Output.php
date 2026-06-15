@@ -230,7 +230,7 @@ class Output extends OutFont
                     $font_data = Compression::uncompress($font_data);
 
                     // Create the font subset binary
-                    $sub = new Subset($font_data, $font, $this->fileHelper, $this->subchars[$dkey]);
+                    $sub = new Subset($font_data, $font, $this->subchars[$dkey], $this->fileHelper);
                     $font_data = $sub->getSubsetFont();
 
                     // Update the font data

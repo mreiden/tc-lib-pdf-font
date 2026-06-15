@@ -49,11 +49,6 @@ use Com\Tecnick\Pdf\Font\Subset;
 class TrueType
 {
     /**
-     * File helper used to load font definition files.
-     */
-    protected ObjFile $fileHelper;
-
-    /**
      * Minimum byte length of the OS/2 table needed to read through fsType.
      */
     private const OS2_MIN_LENGTH = 10;
@@ -116,7 +111,7 @@ class TrueType
     public function __construct(
         protected readonly string $font,
         protected array $fdt,
-        ObjFile $fileHelper,
+        protected readonly ObjFile $fileHelper,
         protected readonly Byte $fbyte,
         protected array $subchars = [],
     ) {
@@ -218,8 +213,7 @@ class TrueType
         $this->fdt['file'] = $this->fdt['file_name'] . '.z';
         file_put_contents($this->fdt['dir'] . $this->fdt['file'], $this->fdt['file']);
 
-        $file = new File();
-        $fpt = $file->fopenLocal($this->fdt['dir'] . $this->fdt['file'], 'wb');
+        $fpt = $this->fileHelper->fopenLocal($this->fdt['dir'] . $this->fdt['file'], 'wb');
         \fwrite($fpt, Compression::compress($this->font));
         \fclose($fpt);
     }

@@ -164,22 +164,42 @@ class Subset
     protected ObjFile $fileHelper;
 
     /**
+     * Array containing the character-ids to subset
+     *
+     * NOTE: Leave this as a declared property instead of moving into the
+     *       constructor as a promoted property or tests will fail.
+     *
+     * @var array<int, int>
+     */
+    protected array $subchars = [];
+
+    /**
      * Process TrueType font
      *
      * @param string              $font          Content (binary) of the input font file
      * @param TFontData           $fdt           Extracted font metrics
-     * @param ObjFile             $fileHelper    Optional file helper for font loading
-     * @param array<int, int>     $subchars      Array containing subset chars
+     * @param array<int, int>     $subchars      Array containing the character-ids to subset
+     * @param ?ObjFile            $fileHelper    Optional file helper; only used for debug-mode file output
      *
      * @throws FileException
      * @throws FontException
      */
-    public function __construct(protected readonly string $font, array $fdt, ObjFile $fileHelper, protected array $subchars = [])
-    {
+    public function __construct(
+        protected readonly string $font,
+        array $fdt,
+        array $subchars = [],
+        ?ObjFile $fileHelper = null,
+    ) {
         if (empty($fdt['subset'])) {
             throw new FontException('Subset flag in fdt array must equal true to create a font subset.');
         }
-        $this->fileHelper = $fileHelper;
+
+        // Set the character-ids to include in the subset
+        $this->subchars = $subchars;
+
+        // Subset only writes to disk in debug mode (see Subset::enableDebug()), so default to a
+        // helper with no allowed paths; normal subsetting performs no file access.
+        $this->fileHelper = $fileHelper ?? new ObjFile(allowedPaths: []);
 
         // Use the TrueType class to get information about the base font.
         $this->fbyte = new Byte($font);
@@ -217,6 +237,7 @@ class Subset
                             $this->fdt['platform_id'],
                             $this->fdt['encoding_id'],
                             $this->fdt['linked'],
+                            $this->fileHelper,
                             false,
                         );
                         $json = $import->createFontJSON();
