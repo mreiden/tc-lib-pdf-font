@@ -91,8 +91,7 @@ class TypeOne extends Core
         // File name where the compressed font data will be stored
         $this->fdt['file'] = $this->fdt['file_name'] . '.z';
         // Store the compressed font data
-        $file = new File();
-        $fpt = $file->fopenLocal($this->fdt['dir'] . $this->fdt['file'], 'wb');
+        $fpt = $this->fileHelper->fopenLocal($this->fdt['dir'] . $this->fdt['file'], 'wb');
         \fwrite($fpt, Compression::compress(\substr($this->font, 6, $this->fdt['size1']) . $this->fdt['encrypted']));
         \fclose($fpt);
     }

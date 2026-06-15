@@ -377,21 +377,16 @@ class Core
     private array $cwu = [];
 
     /**
-     * File helper used to load font definition files.
-     */
-    protected ObjFile $fileHelper;
-
-    /**
      * @param string    $font       Content of the input font file
      * @param TFontData $fdt        Extracted font metrics
-     * @param ObjFile   $fileHelper File helper for font loading.
+     * @param ObjFile   $fileHelper File helper used to load font definition files
      *
      * @throws FontException in case of error
      */
     public function __construct(
         protected readonly string $font,
         protected array $fdt,
-        ObjFile $fileHelper,
+        protected readonly ObjFile $fileHelper,
     ) {
         // Initialize fdt values
         $this->fdt['AvgWidth'] = 0.0;
