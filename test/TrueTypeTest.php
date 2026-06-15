@@ -158,8 +158,8 @@ class TrueTypeTest extends TestUtil
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
                 [
-                    'platformID' => 3,
-                    'encodingID' => 1,
+                    'platformId' => 3,
+                    'encodingId' => 1,
                     'offset' => 0,
                 ],
             ],
@@ -205,8 +205,8 @@ class TrueTypeTest extends TestUtil
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
                 [
-                    'platformID' => 3,
-                    'encodingID' => 1,
+                    'platformId' => 3,
+                    'encodingId' => 1,
                     'offset' => 0,
                 ],
             ],
@@ -248,8 +248,8 @@ class TrueTypeTest extends TestUtil
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
                 [
-                    'platformID' => 3,
-                    'encodingID' => 1,
+                    'platformId' => 3,
+                    'encodingId' => 1,
                     'offset' => 0,
                 ],
             ],
@@ -305,8 +305,8 @@ class TrueTypeTest extends TestUtil
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
                 [
-                    'platformID' => 3,
-                    'encodingID' => 1,
+                    'platformId' => 3,
+                    'encodingId' => 1,
                     'offset' => 0,
                 ],
             ],
@@ -361,8 +361,8 @@ class TrueTypeTest extends TestUtil
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
                 [
-                    'platformID' => 3,
-                    'encodingID' => 1,
+                    'platformId' => 3,
+                    'encodingId' => 1,
                     'offset' => 0,
                 ],
             ],
@@ -423,8 +423,8 @@ class TrueTypeTest extends TestUtil
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
                 [
-                    'platformID' => 3,
-                    'encodingID' => 1,
+                    'platformId' => 3,
+                    'encodingId' => 1,
                     'offset' => 0,
                 ],
             ],
@@ -458,8 +458,8 @@ class TrueTypeTest extends TestUtil
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
                 [
-                    'platformID' => 3,
-                    'encodingID' => 1,
+                    'platformId' => 3,
+                    'encodingId' => 1,
                     'offset' => 0,
                 ],
             ],
@@ -485,8 +485,8 @@ class TrueTypeTest extends TestUtil
         $instance = $this->buildTrueType("\x00\x0f", [
             'encodingTables' => [
                 [
-                    'platformID' => 3,
-                    'encodingID' => 1,
+                    'platformId' => 3,
+                    'encodingId' => 1,
                     'offset' => 0,
                 ],
             ],
@@ -532,8 +532,8 @@ class TrueTypeTest extends TestUtil
     public function testSelectEncodingTableReturnsExactMatch(): void
     {
         $tables = [
-            ['platformID' => 3, 'encodingID' => 1, 'offset' => 42],
-            ['platformID' => 3, 'encodingID' => 10, 'offset' => 99],
+            ['platformId' => 3, 'encodingId' => 1, 'offset' => 42],
+            ['platformId' => 3, 'encodingId' => 10, 'offset' => 99],
         ];
         $instance = $this->buildTrueType('', [
             'encodingTables' => $tables,
@@ -545,8 +545,8 @@ class TrueTypeTest extends TestUtil
         $this->assertNotNull($result);
 
         $this->assertSame(42, $result['offset']);
-        $this->assertSame(3, $result['platformID']);
-        $this->assertSame(1, $result['encodingID']);
+        $this->assertSame(3, $result['platformId']);
+        $this->assertSame(1, $result['encodingId']);
     }
 
     // Verifies selectEncodingTable falls back to Windows UCS-4 (3/10), the top CMAP_FALLBACK_PRIORITY entry,
@@ -556,7 +556,7 @@ class TrueTypeTest extends TestUtil
         // Requested 3/1 is absent; only 3/10 (UCS-4) is available.
         $instance = $this->buildTrueType('', [
             'encodingTables' => [
-                ['platformID' => 3, 'encodingID' => 10, 'offset' => 7],
+                ['platformId' => 3, 'encodingId' => 10, 'offset' => 7],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
@@ -565,8 +565,8 @@ class TrueTypeTest extends TestUtil
         $result = $this->selectEncodingTable($instance);
         $this->assertNotNull($result);
 
-        $this->assertSame(3, $result['platformID']);
-        $this->assertSame(10, $result['encodingID']);
+        $this->assertSame(3, $result['platformId']);
+        $this->assertSame(10, $result['encodingId']);
         $this->assertSame(7, $result['offset']);
     }
 
@@ -577,7 +577,7 @@ class TrueTypeTest extends TestUtil
         // Neither 3/0 (requested) nor 3/10 present; only 3/1 available.
         $instance = $this->buildTrueType('', [
             'encodingTables' => [
-                ['platformID' => 3, 'encodingID' => 1, 'offset' => 5],
+                ['platformId' => 3, 'encodingId' => 1, 'offset' => 5],
             ],
             'platform_id' => 3,
             'encoding_id' => 0,
@@ -586,8 +586,8 @@ class TrueTypeTest extends TestUtil
         $result = $this->selectEncodingTable($instance);
         $this->assertNotNull($result);
 
-        $this->assertSame(3, $result['platformID']);
-        $this->assertSame(1, $result['encodingID']);
+        $this->assertSame(3, $result['platformId']);
+        $this->assertSame(1, $result['encodingId']);
     }
 
     // Verifies selectEncodingTable falls back to a Unicode platform-0 subtable when no Windows (platform 3)
@@ -597,7 +597,7 @@ class TrueTypeTest extends TestUtil
         // No Windows (platform 3) subtables; should fall back to platform 0.
         $instance = $this->buildTrueType('', [
             'encodingTables' => [
-                ['platformID' => 0, 'encodingID' => 3, 'offset' => 11],
+                ['platformId' => 0, 'encodingId' => 3, 'offset' => 11],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
@@ -606,8 +606,8 @@ class TrueTypeTest extends TestUtil
         $result = $this->selectEncodingTable($instance);
         $this->assertNotNull($result);
 
-        $this->assertSame(0, $result['platformID']);
-        $this->assertSame(3, $result['encodingID']);
+        $this->assertSame(0, $result['platformId']);
+        $this->assertSame(3, $result['encodingId']);
     }
 
     // Verifies selectEncodingTable returns null when neither the requested pair nor any fallback pair is present
@@ -616,7 +616,7 @@ class TrueTypeTest extends TestUtil
     {
         $instance = $this->buildTrueType('', [
             'encodingTables' => [
-                ['platformID' => 9, 'encodingID' => 9, 'offset' => 0],
+                ['platformId' => 9, 'encodingId' => 9, 'offset' => 0],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
@@ -634,7 +634,7 @@ class TrueTypeTest extends TestUtil
         // encodingTables contains only an unrecognised platform/encoding pair.
         $instance = $this->buildTrueType('', [
             'encodingTables' => [
-                ['platformID' => 9, 'encodingID' => 9, 'offset' => 0],
+                ['platformId' => 9, 'encodingId' => 9, 'offset' => 0],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
@@ -677,7 +677,7 @@ class TrueTypeTest extends TestUtil
 
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
-                ['platformID' => 3, 'encodingID' => 10, 'offset' => 0],
+                ['platformId' => 3, 'encodingId' => 10, 'offset' => 0],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
@@ -1096,7 +1096,7 @@ class TrueTypeTest extends TestUtil
     }
 
     /**
-     * @return array{platformID: int, encodingID: int, offset: int}|null
+     * @return array{platformId: int, encodingId: int, offset: int}|null
      */
     protected function selectEncodingTable(TrueType $instance): ?array
     {
@@ -1146,7 +1146,7 @@ class TrueTypeTest extends TestUtil
         return $value;
     }
 
-    /** @return array{platformID: int, encodingID: int, offset: int}|null */
+    /** @return array{platformId: int, encodingId: int, offset: int}|null */
     protected function expectEncodingTable(mixed $value): ?array
     {
         if ($value === null) {
@@ -1157,12 +1157,12 @@ class TrueTypeTest extends TestUtil
             $this->fail('Expected encoding table array.');
         }
 
-        if (!isset($value['platformID']) || !\is_int($value['platformID'])) {
-            $this->fail('Expected platformID.');
+        if (!isset($value['platformId']) || !\is_int($value['platformId'])) {
+            $this->fail('Expected platformId.');
         }
 
-        if (!isset($value['encodingID']) || !\is_int($value['encodingID'])) {
-            $this->fail('Expected encodingID.');
+        if (!isset($value['encodingId']) || !\is_int($value['encodingId'])) {
+            $this->fail('Expected encodingId.');
         }
 
         if (!isset($value['offset']) || !\is_int($value['offset'])) {
@@ -1170,8 +1170,8 @@ class TrueTypeTest extends TestUtil
         }
 
         return [
-            'platformID' => $value['platformID'],
-            'encodingID' => $value['encodingID'],
+            'platformId' => $value['platformId'],
+            'encodingId' => $value['encodingId'],
             'offset' => $value['offset'],
         ];
     }
@@ -1208,7 +1208,7 @@ class TrueTypeTest extends TestUtil
 
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
-                ['platformID' => 3, 'encodingID' => 1, 'offset' => 0],
+                ['platformId' => 3, 'encodingId' => 1, 'offset' => 0],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
@@ -1251,7 +1251,7 @@ class TrueTypeTest extends TestUtil
 
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
-                ['platformID' => 3, 'encodingID' => 1, 'offset' => 0],
+                ['platformId' => 3, 'encodingId' => 1, 'offset' => 0],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
@@ -1289,7 +1289,7 @@ class TrueTypeTest extends TestUtil
 
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
-                ['platformID' => 3, 'encodingID' => 1, 'offset' => 0],
+                ['platformId' => 3, 'encodingId' => 1, 'offset' => 0],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
@@ -1326,7 +1326,7 @@ class TrueTypeTest extends TestUtil
 
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
-                ['platformID' => 3, 'encodingID' => 1, 'offset' => 0],
+                ['platformId' => 3, 'encodingId' => 1, 'offset' => 0],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
@@ -1361,7 +1361,7 @@ class TrueTypeTest extends TestUtil
 
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
-                ['platformID' => 3, 'encodingID' => 1, 'offset' => 0],
+                ['platformId' => 3, 'encodingId' => 1, 'offset' => 0],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
@@ -1402,7 +1402,7 @@ class TrueTypeTest extends TestUtil
 
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
-                ['platformID' => 3, 'encodingID' => 1, 'offset' => 0],
+                ['platformId' => 3, 'encodingId' => 1, 'offset' => 0],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
@@ -1441,7 +1441,7 @@ class TrueTypeTest extends TestUtil
 
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
-                ['platformID' => 3, 'encodingID' => 1, 'offset' => 0],
+                ['platformId' => 3, 'encodingId' => 1, 'offset' => 0],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
@@ -1470,7 +1470,7 @@ class TrueTypeTest extends TestUtil
 
         $instance = $this->buildTrueType($font, [
             'encodingTables' => [
-                ['platformID' => 3, 'encodingID' => 1, 'offset' => 0],
+                ['platformId' => 3, 'encodingId' => 1, 'offset' => 0],
             ],
             'platform_id' => 3,
             'encoding_id' => 1,
