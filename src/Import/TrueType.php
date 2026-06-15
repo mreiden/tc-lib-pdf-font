@@ -471,19 +471,36 @@ class TrueType
      */
     protected function getOS2Metrics(): void
     {
+        // OS/2 is optional in some older or non-Windows TrueType fonts.
+        if (!isset($this->fdt['table']['OS/2'])) {
+            // No OS/2 table present: use conservative metric defaults.
+            $this->fdt['AvgWidth'] = 0;
+            $this->fdt['StemV'] = 70;
+            $this->fdt['StemH'] = 30;
+            return;
+        }
+
+        if ($this->fdt['table']['OS/2']['length'] < self::OS2_MIN_LENGTH) {
+            throw new FontException(
+                'OS/2 table is too short: expected at least '
+                . self::OS2_MIN_LENGTH
+                . ' bytes, got '
+                . $this->fdt['table']['OS/2']['length']
+                . ' bytes.',
+            );
+        }
+
         $offset_file = $this->fdt['table']['OS/2']['offset'];
 
         // skip os2 table version since none of the extra fields in versions > 0 are used
 
         // xAvgCharWidth
         $this->fdt['AvgWidth'] = (int) \round($this->fbyte->getFWord($offset_file + 2) * $this->fdt['urk']);
-
         // usWeightClass
         $usWeightClass = \round($this->fbyte->getUShort($offset_file + 4) * $this->fdt['urk']);
         // estimate StemV and StemH (400 = usWeightClass for Normal - Regular font)
         $this->fdt['StemV'] = (int) \round((70 * $usWeightClass) / 400);
         $this->fdt['StemH'] = (int) \round((30 * $usWeightClass) / 400);
-
         // fsType
         $fsType = $this->fbyte->getUShort($offset_file + 8);
         $this->applyEmbeddingPolicy($fsType);
