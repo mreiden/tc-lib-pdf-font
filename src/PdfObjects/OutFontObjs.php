@@ -72,7 +72,8 @@ class OutFontObjs
 
     public const TRUE_TYPE = <<<'TRUE_TYPE'
     %1$d 0 obj
-    <</Type/Font /Subtype/%2$s /BaseFont/%3$s /Name/F%4$d /FirstChar 32 /LastChar 255 /Widths [ %5$s ] /FontDescriptor %6$d 0 R
+    <</Type/Font /Subtype/%2$s /BaseFont/%3$s /Name/F%4$d /FirstChar 32 /LastChar 255 /Widths [ %5$s ] /FontDescriptor %6$d 0 R %7$s >>
+    endobj
     TRUE_TYPE;
 
     public const TRUE_TYPE_FONT_DESCRIPTOR = <<<'TRUE_TYPE_FONT_DESCRIPTOR'

@@ -286,8 +286,9 @@ abstract class OutFont extends OutUtil
             $fontname,
             // CIDSystemInfo
             \vsprintf('<< /Registry %s /Ordering %s /Supplement %d >>', [
-                $this->enc->escapeDataString($font['cidinfo']['Registry'], $pdfRefCIDFontType2),
-                $this->enc->escapeDataString($font['cidinfo']['Ordering'], $pdfRefCIDFontType2),
+                // Identity-encoded CIDFontType2 subsets default to the Adobe-Identity-0 system info.
+                $this->enc->escapeDataString($font['cidinfo']['Registry'] ?: 'Adobe', $pdfRefCIDFontType2),
+                $this->enc->escapeDataString($font['cidinfo']['Ordering'] ?: 'Identity', $pdfRefCIDFontType2),
                 $font['cidinfo']['Supplement'],
             ]),
             $CIDtoGIDMap,
@@ -354,11 +355,12 @@ abstract class OutFont extends OutUtil
                 fn(string $combined, int $idx): string => "$combined " . ($font['cw'][$idx] ?? $font['dw']),
                 '',
             ),
+            $pdfRefFontDescriptor,
             empty($font['enc'])
                 ? ''
                 : (empty($font['diff_n'])
                     ? '/Encoding/WinAnsiEncoding'
-                    : "/Encoding {$font['diff_n']} O R"),
+                    : "/Encoding {$font['diff_n']} 0 R"),
         ]);
 
         // Font descriptor: A font descriptor describing the default metrics other than its glyph widths
