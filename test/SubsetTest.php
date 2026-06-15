@@ -232,6 +232,8 @@ final class SubsetTest extends TestUtil
             public function run(): void
             {
                 $this->addProcessedTables();
+                // Table length and checksums are calculated after unused tables are dropped
+                $this->removeUnusedTables();
             }
 
             /** @return array<string, mixed> */
@@ -285,6 +287,8 @@ final class SubsetTest extends TestUtil
             /** @throws \Com\Tecnick\Pdf\Font\Exception */
             public function run(): void
             {
+                // removeUnusedTables calculates offset, length, and checksums all tables
+                $this->removeUnusedTables();
                 $this->buildSubsetFont();
             }
 
@@ -499,6 +503,8 @@ final class SubsetTest extends TestUtil
             public function run(): void
             {
                 $this->addProcessedTables();
+                // table length and checksum are calculated after dropping unwanted tables
+                $this->removeUnusedTables();
             }
 
             /** @return array<string, mixed> */
