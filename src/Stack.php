@@ -690,7 +690,7 @@ class Stack extends Buffer
             'maxwidth' => $maxwidth * $cratio * $fontstretching,
             'midpoint' => (($ascent + $descent) * $cratio) / 2,
             'missingwidth' => $missingwidth * $cratio * $fontstretching,
-            'out' => 'BT ' . $outfont . ' ET' . "\r",
+            'out' => 'BT ' . $outfont . ' ET' . "\n",
             'outraw' => $outfont,
             'size' => $fontsize,
             'spacing' => $fontspacing,
