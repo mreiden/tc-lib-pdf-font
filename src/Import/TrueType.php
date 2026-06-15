@@ -197,10 +197,9 @@ class TrueType
      */
     protected function setFontFile(): void
     {
-        // The font has already been imported if 'MaxWidth' exists and should not be reimported.
-        // The Subset class loads the original font and should bypass the import.
-        if (!empty($this->fdt['desc']['MaxWidth'])) {
-            // subsetting mode
+        // In subset mode the original font has already been imported and must not be
+        // re-stored to disk; the Subset class reuses the imported font data.
+        if ($this->subsetMode !== SubsetMode::OFF) {
             $this->fdt['Flags'] = $this->fdt['desc']['Flags'];
             return;
         }
