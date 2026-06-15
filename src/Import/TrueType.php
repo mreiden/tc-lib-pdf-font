@@ -352,33 +352,37 @@ class TrueType
         $locaData = \substr($this->font, $this->fdt['table']['loca']['offset'], $this->fdt['table']['loca']['length']);
 
         if ($this->fdt['short_offset']) {
-            $numGlyphs = (int) \floor($this->fdt['table']['loca']['length'] / 2);
-            $unpack_format = 'n' . $numGlyphs;
-        } else {
-            $numGlyphs = (int) \floor($this->fdt['table']['loca']['length'] / 4);
-            $unpack_format = 'N' . $numGlyphs;
-        }
-        // This includes the one additional offset used to calculate the byte size of the last glyph
-        $this->fdt['tot_num_glyphs'] = $numGlyphs;
+            // This includes the one additional offset used to calculate the byte size of the last glyph
+            $numGlyphs = \intdiv($this->fdt['table']['loca']['length'], 2);
 
-        // unpack produces an array using one-based indexing. Use array_values to change it to zero-based indexing.
-        $indexToLoc = \unpack($unpack_format, $locaData);
-
-        if ($indexToLoc === false) {
-            throw new FontException('Unable to unpack TTF loca table data.');
-        }
-        /** @var array<int, int> $indexToLoc */
-        $this->fdt['indexToLoc'] = \array_values($indexToLoc);
-
-        // The stored offset values must be multiplied by 2 when stored in the short format (Offset16)
-        if ($this->fdt['short_offset']) {
-            foreach ($this->fdt['indexToLoc'] as &$value) {
-                $value *= 2;
+            $indexToLoc = \unpack('n' . $numGlyphs, $locaData);
+            if ($indexToLoc === false) {
+                throw new FontException('Unable to unpack TTF loca table data.');
             }
+
+            // The stored offset values must be multiplied by 2 when stored in the short format (Offset16).
+            // Double the values while renumbering unpack's one-based keys to zero-based in a single pass.
+            $zeroBased = [];
+            foreach ($indexToLoc as $value) {
+                $zeroBased[] = $value << 1;
+            }
+
+            $this->fdt['indexToLoc'] = $zeroBased;
+        } else {
+            $numGlyphs = \intdiv($this->fdt['table']['loca']['length'], 4);
+
+            $indexToLoc = \unpack('N' . $numGlyphs, $locaData);
+            if ($indexToLoc === false) {
+                throw new FontException('Unable to unpack TTF loca table data.');
+            }
+
+            // unpack produces an array using one-based indexing. Use array_values to change it to zero-based indexing.
+            /** @var array<int, int> $indexToLoc */
+            $this->fdt['indexToLoc'] = \array_values($indexToLoc);
         }
 
         // Subtract the one additional offset to match the number of glyphs and not glyphs + 1
-        $this->fdt['tot_num_glyphs']--;
+        $this->fdt['tot_num_glyphs'] = $numGlyphs - 1;
     }
 
     /**
@@ -853,41 +857,48 @@ class TrueType
      */
     protected function getWidths(): void
     {
-        $offset_file = $this->fdt['table']['hmtx']['offset'];
-
         // Skip getting widths for subsetting mode. The Subset class will reuse the data from the import process
         // instead of calculating it all again.
         if ($this->subsetMode !== SubsetMode::OFF) {
             return;
         }
 
-        // Create character widths array when importing a font (SubsetMode::OFF)
-        $chw = [];
-        for ($i = 0; $i < $this->fdt['numHMetrics']; $i++) {
-            // hMetrics are needed for subsetting
-            $this->fdt['tableSubset']['hmtx']['hMetrics'][$i] = [
-                // advanceWidth
-                (($this->fbyte->bytes[$offset_file] << 8) & 0xff00) | ($this->fbyte->bytes[$offset_file + 1] & 0xff),
-                // lsb
-                (int) \round(
-                    (((($this->fbyte->bytes[$offset_file + 2] << 8) & 0xff00) |
-                        ($this->fbyte->bytes[$offset_file + 3] & 0xff)) ^
-                        0x8000) -
-                        0x8000,
-                ),
-            ];
-            // Character width is advanceWidth * urk
-            $chw[$i] = (int) \round($this->fdt['tableSubset']['hmtx']['hMetrics'][$i][0] * $this->fdt['urk']);
+        $offset_file = $this->fdt['table']['hmtx']['offset'];
+        $numHMetrics = $this->fdt['numHMetrics'];
+        $urk = $this->fdt['urk'];
 
-            // Increment offset by size of each loop item in bytes
-            $offset_file += 4;
+        // Create character widths array when importing a font (SubsetMode::OFF).
+        // Each hMetric record is advanceWidth (uint16) followed by lsb (int16):
+        // decode the whole table with one bulk unpack instead of per-byte reads.
+        $chw = [];
+        $hMetrics = [];
+        if ($numHMetrics > 0) {
+            $data = \unpack('n' . (2 * $numHMetrics), \substr($this->font, $offset_file, 4 * $numHMetrics));
+            if ($data === false) {
+                throw new FontException('Unable to unpack TTF hmtx table data.');
+            }
+
+            /** @var array<int, int> $data */
+            $end = 2 * $numHMetrics;
+            for ($key = 1; $key <= $end; $key += 2) {
+                $advanceWidth = $data[$key];
+                // hMetrics are needed for subsetting; lsb is converted to int16 (two's complement)
+                $hMetrics[] = [$advanceWidth, ($data[$key + 1] ^ 0x8000) - 0x8000];
+                // Character width is advanceWidth * urk
+                $chw[] = (int) \round($advanceWidth * $urk);
+            }
+
+            // Move the offset past the read hMetric records
+            $offset_file += 4 * $numHMetrics;
         }
 
-        $lastIndex = $this->fdt['numHMetrics'] - 1;
-        // fill missing widths with the last value
-        $chw = \array_pad($chw, $this->fdt['numGlyphs'], $chw[$lastIndex]);
+        $this->fdt['tableSubset']['hmtx']['hMetrics'] = $hMetrics;
 
-        $numRemain = $this->fdt['numGlyphs'] - $this->fdt['numHMetrics'];
+        $lastIndex = $numHMetrics - 1;
+        // fill missing widths with the last value
+        $chw = \array_pad($chw, $this->fdt['numGlyphs'], $chw[$lastIndex] ?? 0);
+
+        $numRemain = $this->fdt['numGlyphs'] - $numHMetrics;
         if ($numRemain > 0) {
             $data = \unpack("n$numRemain", \substr($this->font, $offset_file, 2 * $numRemain));
             if ($data !== false) {
@@ -900,46 +911,51 @@ class TrueType
         }
 
         $this->fdt['MissingWidth'] = $chw[0] ?? 0;
-        $this->fdt['cw'] = [];
-        $this->fdt['cbbox'] = [];
+
+        // Hot loop over up to 65536 character ids: keep the byte reads inline on the
+        // font string and hoist the repeated property/array lookups into locals.
+        $font = $this->font;
+        $fontLen = \strlen($font);
+        $offset_glyf = $this->fdt['table']['glyf']['offset'];
+        $ctgdata = $this->fdt['ctgdata'];
+        $indexToLoc = $this->fdt['indexToLoc'];
+
+        $cw = [];
+        $cbbox = [];
         for ($cid = 0; $cid <= 65535; $cid++) {
-            if (!isset($this->fdt['ctgdata'][$cid])) {
+            if (!isset($ctgdata[$cid])) {
                 continue;
             }
 
-            if (isset($chw[$this->fdt['ctgdata'][$cid]])) {
-                $this->fdt['cw'][$cid] = $chw[$this->fdt['ctgdata'][$cid]];
+            $gid = $ctgdata[$cid];
+            if (isset($chw[$gid])) {
+                $cw[$cid] = $chw[$gid];
             }
 
-            if (isset($this->fdt['indexToLoc'][$this->fdt['ctgdata'][$cid]])) {
-                $offset_file =
-                    $this->fdt['table']['glyf']['offset'] + $this->fdt['indexToLoc'][$this->fdt['ctgdata'][$cid]];
+            if (isset($indexToLoc[$gid])) {
+                $offset_glyph = $offset_glyf + $indexToLoc[$gid];
+                if ($offset_glyph + 10 > $fontLen) {
+                    throw new FontException('Out-of-bounds glyf table read for glyph ' . $gid);
+                }
 
-                // The int16 conversion is inlined here to optimize the loop
-                $this->fdt['cbbox'][$cid] = [
-                    (int) ($this->fdt['urk'] *
-                        ((((($this->fbyte->bytes[$offset_file + 2] << 8) & 0xff00) |
-                            ($this->fbyte->bytes[$offset_file + 3] & 0xff)) ^
-                            0x8000) -
-                            0x8000)),
-                    (int) ($this->fdt['urk'] *
-                        ((((($this->fbyte->bytes[$offset_file + 4] << 8) & 0xff00) |
-                            ($this->fbyte->bytes[$offset_file + 5] & 0xff)) ^
-                            0x8000) -
-                            0x8000)),
-                    (int) ($this->fdt['urk'] *
-                        ((((($this->fbyte->bytes[$offset_file + 6] << 8) & 0xff00) |
-                            ($this->fbyte->bytes[$offset_file + 7] & 0xff)) ^
-                            0x8000) -
-                            0x8000)),
-                    (int) ($this->fdt['urk'] *
-                        ((((($this->fbyte->bytes[$offset_file + 8] << 8) & 0xff00) |
-                            ($this->fbyte->bytes[$offset_file + 9] & 0xff)) ^
-                            0x8000) -
-                            0x8000)),
+                // Glyph header is numberOfContours, xMin, yMin, xMax, yMax (int16 each).
+                // The int16 conversion is inlined here to optimize the loop.
+                $xMin = (((\ord($font[$offset_glyph + 2]) << 8) | \ord($font[$offset_glyph + 3])) ^ 0x8000) - 0x8000;
+                $yMin = (((\ord($font[$offset_glyph + 4]) << 8) | \ord($font[$offset_glyph + 5])) ^ 0x8000) - 0x8000;
+                $xMax = (((\ord($font[$offset_glyph + 6]) << 8) | \ord($font[$offset_glyph + 7])) ^ 0x8000) - 0x8000;
+                $yMax = (((\ord($font[$offset_glyph + 8]) << 8) | \ord($font[$offset_glyph + 9])) ^ 0x8000) - 0x8000;
+
+                $cbbox[$cid] = [
+                    (int) ($urk * $xMin),
+                    (int) ($urk * $yMin),
+                    (int) ($urk * $xMax),
+                    (int) ($urk * $yMax),
                 ];
             }
         }
+
+        $this->fdt['cw'] = $cw;
+        $this->fdt['cbbox'] = $cbbox;
     }
 
     /**
@@ -961,12 +977,12 @@ class TrueType
     /**
      * Find the first encoding table record matching the given platformID and encodingID.
      *
-     * @return array{platformID: int, encodingID: int, offset: int}|null
+     * @return array{platformId: int, encodingId: int, offset: int}|null
      */
     private function findTableEntry(int $platformID, int $encodingID): ?array
     {
         foreach ($this->fdt['encodingTables'] as $enctable) {
-            if ($enctable['platformID'] === $platformID && $enctable['encodingID'] === $encodingID) {
+            if ($enctable['platformId'] === $platformID && $enctable['encodingId'] === $encodingID) {
                 return $enctable;
             }
         }
@@ -981,7 +997,7 @@ class TrueType
      *   1. Exact match for the caller-requested (platform_id, encoding_id) pair.
      *   2. Fallback pairs in CMAP_FALLBACK_PRIORITY order.
      *
-     * @return array{platformID: int, encodingID: int, offset: int}|null
+     * @return array{platformId: int, encodingId: int, offset: int}|null
      *         The chosen encoding-table record, or null when no usable subtable exists.
      */
     protected function selectEncodingTable(): ?array
@@ -1033,16 +1049,15 @@ class TrueType
                 . $this->fdt['encoding_id']
                 . '. Available tables: '
                 . \implode(', ', \array_map(
-                    static fn(array $tbl): string => $tbl['platformID'] . '/' . $tbl['encodingID'],
+                    static fn(array $tbl): string => $tbl['platformId'] . '/' . $tbl['encodingId'],
                     $this->fdt['encodingTables'],
                 ))
                 . '.',
             );
         }
 
-        $this->offset = $this->fdt['table']['cmap']['offset'] + $enctable['offset'];
-        $format = $this->fbyte->getUShort($this->offset);
-        $this->offset += 2;
+        $offset_file = $this->fdt['table']['cmap']['offset'] + $enctable['offset'];
+        $format = $this->fbyte->getUShort($offset_file);
         match ($format) {
                 0 => $this->processFormat0($offset_file),
                 2 => $this->processFormat2($offset_file),
@@ -1448,7 +1463,7 @@ class TrueType
     /**
      * Process Format 14: Unicode Variation Sequences
      *
-     * 'cmap' Subtable Format 14 (format field already consumed, $this->offset points past it):
+     * 'cmap' Subtable Format 14 ($offset_file points at the subtable start, format field at offset 0):
      *   0 - uint16                                   format                  (unused) Always 14 for subtable format 14
      *   2 - uint32                                   length                  (unused) Byte length of this subtable (incl. header)
      *   6 - uint32                                   numVarSelectorRecords   Number of VariationSelector records
