@@ -19,9 +19,6 @@
       "role": "lead"
     }
   ],
-  "require": {
-    "tecnickcom/tc-font-mirror": "^2.1"
-  },
   "minimum-stability": "dev",
   "prefer-stable": true,
   "config": {
@@ -29,7 +26,6 @@
       "dealerdirect/phpcodesniffer-composer-installer": true
     }
   },
-  "require-dev": {},
   "repositories": [
     {
       "type": "package",
@@ -58,5 +54,8 @@
     "cs-check": "./vendor/bin/phpcs --standard=phpcs.xml",
     "cs-fix": "./vendor/bin/phpcbf --ignore=\"./vendor/\" --standard=psr12 src test",
     "analyse": "./vendor/phpstan.phar analyse"
+  },
+  "require": {
+    "tecnickcom/tc-font-mirror": "^2.1"
   }
 }

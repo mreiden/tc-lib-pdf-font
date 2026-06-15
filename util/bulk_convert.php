@@ -1,5 +1,6 @@
 #!/usr/bin/env php
 <?php
+
 declare(strict_types=1);
 
 /**
@@ -90,19 +91,19 @@ foreach ($inopt as $opt => $val) {
 }
 
 // Create output directory if it does not exist
-if (!\is_dir($options['outpath'])) {
-    \mkdir($options['outpath'], 0755, true);
+if (!\is_dir($options['outpath']) && !\mkdir($options['outpath'], 0755, true)) {
+    \fwrite(STDERR,"ERROR: The {$options['ttfpath']} directory could not be created.\n\n");
+    exit(2);
 }
-// Add slash to real output path
-$options['outpath'] = \realpath($options['outpath']) . \DIRECTORY_SEPARATOR;
 // Check if output path is writable
 if (!\is_writable($options['outpath'])) {
     \fwrite(STDERR, "ERROR: Can not write to {$options['outpath']}\n\n");
     exit(2);
 }
+// Add slash to real output path
+$options['outpath'] = realpath($options['outpath']) . \DIRECTORY_SEPARATOR;
 
-// Add slash to real ttf path
-$options['ttfpath'] = \realpath($options['ttfpath']) . \DIRECTORY_SEPARATOR;
+// Font Source Path
 if (!$options['ttfpath'] || !\is_dir($options['ttfpath'])) {
     \fwrite(
         STDERR,
@@ -110,6 +111,17 @@ if (!$options['ttfpath'] || !\is_dir($options['ttfpath'])) {
     );
     exit(3);
 }
+$ttfpath = \realpath($options['ttfpath']);
+if ($ttfpath === false) {
+    \fwrite(
+        STDERR,
+        "ERROR: The {$options['ttfpath']} font source directory does not exist, please use the --ttfpath option.\n\n",
+    );
+    exit(3);
+}
+// Add slash to real ttf path
+$options['ttfpath'] = $ttfpath . \DIRECTORY_SEPARATOR;
+
 
 $summary = <<<SUMMARY
 
@@ -205,7 +217,10 @@ foreach ($fontdir as $dir) {
             }
         }
         try {
-            $import = new Import(\realpath($font), $outdir, $type, $encoding);
+            if (!($realpath = \realpath($font))) {
+                throw new \RuntimeException("Font file does not exist: $font");
+            }
+            $import = new Import($realpath, $outdir, $type, $encoding);
             $fontname = $import->getFontName();
             \fwrite(STDOUT, "\033[32m" . '+++ OK   : ' . $font . ' added as ' . $fontname . "\033[m\n");
             $convert_success++;
