@@ -91,7 +91,8 @@ class TrueTypeTest extends TestUtil
         $byte = new Byte($binary);
 
         $this->expectException(FontException::class);
-        new TrueType($binary, $this->fdt, $byte);
+        // Invalid sfnt version throws before the file helper is used.
+        new TrueType($binary, $this->fdt, new \Com\Tecnick\File\File(), $byte);
     }
 
     // Verifies checkMagickNumber() throws when the head table's magic number != 0x5f0f3cf5; also guards that
@@ -140,7 +141,8 @@ class TrueTypeTest extends TestUtil
         $this->fdt['file_name'] = \bin2hex(\random_bytes(20));
 
         $this->expectException(FontException::class);
-        new TrueType($binary, $this->fdt, $byte);
+        // setFontFile() stores the font before the magic-number check, so the helper must allow K_PATH_FONTS.
+        new TrueType($binary, $this->fdt, new \Com\Tecnick\File\File(allowedPaths: [K_PATH_FONTS]), $byte);
     }
 
     // Verifies a format 13 subtable with numGroups=0 maps no chars, so getCIDToGIDMap leaves only the
@@ -272,7 +274,7 @@ class TrueTypeTest extends TestUtil
 
         $this->assertSame(7, $this->getCtgGlyph($fontData, 65));
         $this->assertArrayHasKey(7, $subGlyphs);
-        $this->assertTrue($subGlyphs[7] ?? false);
+        $this->assertSame(65, $subGlyphs[7] ?? null);
     }
 
     // Verifies format 14 (Unicode Variation Sequences) follows a non-zero nonDefaultUVSOffset and maps the
@@ -387,7 +389,7 @@ class TrueTypeTest extends TestUtil
         $this->assertSame(42, $this->getCtgGlyph($fontData, 0x004E4D));
         // Glyph 7961 must be in the subset (0x0082A6 was a subchar)
         $this->assertArrayHasKey(7961, $subGlyphs);
-        $this->assertTrue($subGlyphs[7961] ?? false);
+        $this->assertSame(0x0082A6, $subGlyphs[7961] ?? null);
         // Glyph 42 must NOT be in the subset (U+004E4D was not a subchar)
         $this->assertArrayNotHasKey(42, $subGlyphs);
     }
@@ -520,7 +522,7 @@ class TrueTypeTest extends TestUtil
 
         $this->assertSame(7, $this->getCtgGlyph($fontData, 65));
         $this->assertArrayHasKey(7, $subGlyphs);
-        $this->assertTrue($subGlyphs[7] ?? false);
+        $this->assertSame(65, $subGlyphs[7] ?? null);
     }
 
     // -------------------------------------------------------------------------
@@ -1007,7 +1009,6 @@ class TrueTypeTest extends TestUtil
         $this->setProperty($instance, 'font', $font);
         $this->setProperty($instance, 'fdt', $this->getFontDefaults($fdt));
         $this->setProperty($instance, 'fbyte', $byte);
-        $this->setProperty($instance, 'offset', 0);
 
         return $instance;
     }
@@ -1106,7 +1107,7 @@ class TrueTypeTest extends TestUtil
     protected function convertStringEncoding(TrueType $instance, string $str, int $platformId, int $encodingId): string
     {
         return $this->expectString(
-            $this->invokeMethod($instance, 'convertStringEncoding', [$str, $platformId, $encodingId]),
+            $this->invokeMethod($instance, 'decodeNameString', [$str, $platformId, $encodingId]),
             'Expected converted string.',
         );
     }
