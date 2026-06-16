@@ -235,9 +235,10 @@ class OutputTest extends TestUtil
         $base['key'] = 'freesans_dup';
         $base['i'] += 1000;
         $base['n'] += 1000;
-        $base['subsetchars'] = [8776 => true, 9999 => false];
+        // subsetchars maps char code -> new subset glyph id (>= 1); 0 means notdef/unused.
+        $base['subsetchars'] = [8776 => 2, 9999 => 0];
         $primary = $fonts['freesans'];
-        $primary['subsetchars'] = [960 => true];
+        $primary['subsetchars'] = [960 => 1];
 
         $fonts = \array_replace($fonts, [
             'freesans' => $primary,
@@ -360,8 +361,8 @@ class OutputTest extends TestUtil
         $output = new \Com\Tecnick\Pdf\Font\Output(['truetypefont' => $font], 1, $encrypt, null);
         $block = $output->getFontsBlock();
 
-        $this->assertStringContainsString('/Subtype /TrueType', $block);
-        $this->assertStringContainsString('/Encoding /WinAnsiEncoding', $block);
+        $this->assertStringContainsString('/Subtype/TrueType', $block);
+        $this->assertStringContainsString('/Encoding/WinAnsiEncoding', $block);
     }
 
     // Verifies getKeyValOut() renders a float value with %F (fixed 6 decimals, locale-independent),
@@ -404,8 +405,8 @@ class OutputTest extends TestUtil
         $output = new \Com\Tecnick\Pdf\Font\Output(['cidfont0' => $font], 1, $encrypt, null);
         $block = $output->getFontsBlock();
 
-        $this->assertStringContainsString('/Subtype /Type0', $block);
-        $this->assertStringContainsString('/Subtype /CIDFontType0', $block);
+        $this->assertStringContainsString('/Subtype/Type0', $block);
+        $this->assertStringContainsString('/Subtype/CIDFontType0', $block);
     }
 
     // Verifies a font whose char-widths array is empty still produces a non-empty fonts block
