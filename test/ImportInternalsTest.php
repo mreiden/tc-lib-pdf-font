@@ -52,6 +52,15 @@ class ImportInternalsTest extends TestUtil
         return (string) $ref->invokeArgs($obj, $args);
     }
 
+    /**
+     * @param array<int, mixed> $args
+     */
+    private function callVoidMethod(object $obj, string $method, array $args = []): void
+    {
+        $ref = new \ReflectionMethod($obj, $method);
+        $ref->invokeArgs($obj, $args);
+    }
+
     private function setFdt(object $obj, mixed $fdt): void
     {
         $prop = new \ReflectionProperty($obj, 'fdt');
@@ -68,10 +77,11 @@ class ImportInternalsTest extends TestUtil
         $instance = $this->buildImport();
         // 65536 CID slots × 2 bytes = 131072 bytes
         $map = str_repeat("\x00", 131072);
-        $result = $this->callStringMethod($instance, 'updateCIDtoGIDmap', [$map, 65, 42]);
+        // $map is passed by reference and possibly mutated
+        $this->callVoidMethod($instance, 'updateCIDtoGIDmap', [&$map, 65, 42]);
         // gid 42 = 0x002A → high byte = 0x00, low byte = 0x2A
-        $this->assertSame(0, ord($result[65 * 2]));
-        $this->assertSame(42, ord($result[(65 * 2) + 1]));
+        $this->assertSame(0, ord($map[65 * 2]));
+        $this->assertSame(42, ord($map[(65 * 2) + 1]));
     }
 
     // Verifies a CID outside 0..0xFFFF is ignored, leaving the map unchanged (no out-of-bounds write).
@@ -79,7 +89,9 @@ class ImportInternalsTest extends TestUtil
     {
         $instance = $this->buildImport();
         $map = str_repeat("\x00", 131072);
-        $result = $this->callStringMethod($instance, 'updateCIDtoGIDmap', [$map, 0x10000, 5]);
+        // $result is a copy; updateCIDtoGIDmap mutates by reference
+        $result = $map;
+        $this->callVoidMethod($instance, 'updateCIDtoGIDmap', [&$result, 0x10000, 5]);
         // CID 0x10000 is out of the 0..0xFFFF range → map unchanged
         $this->assertSame($map, $result);
     }
@@ -90,9 +102,10 @@ class ImportInternalsTest extends TestUtil
         $instance = $this->buildImport();
         $map = str_repeat("\x00", 131072);
         // gid = 0x1002A  →  gid -= 0x10000  →  0x002A = 42
-        $result = $this->callStringMethod($instance, 'updateCIDtoGIDmap', [$map, 0, 0x1002A]);
-        $this->assertSame(0, ord($result[0]));
-        $this->assertSame(42, ord($result[1]));
+        // $map is passed by reference and possibly mutated
+        $this->callVoidMethod($instance, 'updateCIDtoGIDmap', [&$map, 0, 0x1002A]);
+        $this->assertSame(0, ord($map[0]));
+        $this->assertSame(42, ord($map[1]));
     }
 
     // Verifies a negative gid is ignored, leaving the map unchanged.
@@ -101,7 +114,9 @@ class ImportInternalsTest extends TestUtil
         $instance = $this->buildImport();
         $map = str_repeat("\x00", 131072);
         // gid < 0 → condition ($gid >= 0) is false → map unchanged
-        $result = $this->callStringMethod($instance, 'updateCIDtoGIDmap', [$map, 10, -1]);
+        // $result is a copy; updateCIDtoGIDmap mutates by reference
+        $result = $map;
+        $this->callVoidMethod($instance, 'updateCIDtoGIDmap', [&$result, 10, -1]);
         $this->assertSame($map, $result);
     }
 
