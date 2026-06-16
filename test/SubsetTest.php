@@ -205,7 +205,6 @@ final class SubsetTest extends TestUtil
         // A font binary with 8 bytes of head data (for substr to not be empty)
         $font = str_repeat("\x00", 64);
         $this->setProp($subset, 'font', $font);
-        $this->setProp($subset, 'offset', 12);
 
         // Provide two tables: 'head' (known → kept) and 'xxxx' (unknown → removed)
         $this->setProp($subset, 'fdt', array_merge($this->getDefaultFdt(), [
@@ -250,19 +249,24 @@ final class SubsetTest extends TestUtil
         // Font data: 12 bytes (glyf table at offset 0, 12 bytes of raw glyph data)
         $font = str_repeat("\xAB", 12);
         $this->setProp($subset, 'font', $font);
-        $this->setProp($subset, 'offset', 0);
 
         // subglyphs: only glyph 0 is in the subset
-        $this->setProp($subset, 'subglyphs', [0 => true]);
+        $this->setProp($subset, 'subglyphs', [0 => 0]);
 
         // Inject the fdt state the method needs
-        $this->setProp($subset, 'fdt', array_merge($this->getDefaultFdt(), [
+        $this->setProp($subset, 'fdt', array_replace_recursive($this->getDefaultFdt(), [
             'tot_num_glyphs' => 2,
             'short_offset' => false, // long (Offset32) loca entries
             'indexToLoc' => [0 => 0, 1 => 8], // glyph 0 is 8 bytes
+            'numHMetrics' => 1,
+            'tableSubset' => ['hmtx' => ['hMetrics' => [[100, 0]]]],
             'table' => [
                 'glyf' => ['offset' => 0, 'length' => 12, 'checkSum' => 0, 'data' => ''],
+                'hmtx' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
                 'loca' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
+                'head' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
+                'hhea' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
+                'maxp' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
             ],
         ]));
 
@@ -348,8 +352,7 @@ final class SubsetTest extends TestUtil
         // 8 bytes for glyph 0 followed by 8 bytes for glyph 1.
         $font = str_repeat("\xAB", 16);
         $this->setProp($subset, 'font', $font);
-        $this->setProp($subset, 'offset', 0);
-        $this->setProp($subset, 'subglyphs', [0 => true]);
+        $this->setProp($subset, 'subglyphs', [0 => 0]);
 
         // Simulate parser output where index 1 was removed as duplicate-empty marker.
         // Glyph 0 must still use index 2 as the closing boundary.
@@ -360,7 +363,13 @@ final class SubsetTest extends TestUtil
             'table' => [
                 'glyf' => ['offset' => 0, 'length' => 16, 'checkSum' => 0, 'data' => ''],
                 'loca' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
+                'head' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
+                'hhea' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
+                'hmtx' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
+                'maxp' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
             ],
+            'numHMetrics' => 5,
+            'tableSubset' => ['hmtx' => ['hMetrics' => [[100, 0], [222, 0], [111, 0]]]],
         ]));
 
         $subset->run();
@@ -407,7 +416,7 @@ final class SubsetTest extends TestUtil
             }
         };
 
-        $this->setProp($subset, 'subglyphs', [853 => true]);
+        $this->setProp($subset, 'subglyphs', [853 => 111]);
 
         $subset->run();
         $subglyphs = $subset->getSubglyphs();
@@ -490,14 +499,19 @@ final class SubsetTest extends TestUtil
         // One glyph with 3 bytes to force padding in both loca and glyf tables.
         $font = "\xAA\xBB\xCC";
         $this->setProp($subset, 'font', $font);
-        $this->setProp($subset, 'offset', 0);
-        $this->setProp($subset, 'subglyphs', [0 => true]);
+        $this->setProp($subset, 'subglyphs', [0 => 0]);
         $this->setProp($subset, 'fdt', \array_replace_recursive($this->getDefaultFdt(), [
             'tot_num_glyphs' => 1,
             'short_offset' => true,
             'indexToLoc' => [0 => 0, 1 => 3],
+            'numHMetrics' => 1,
+            'tableSubset' => ['hmtx' => ['hMetrics' => [[100, 0]]]],
             'table' => [
                 'glyf' => ['offset' => 0, 'length' => 3, 'checkSum' => 0, 'data' => ''],
+                'hmtx' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
+                'head' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
+                'hhea' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
+                'maxp' => ['offset' => 0, 'length' => 0, 'checkSum' => 0, 'data' => ''],
             ],
         ]));
 
@@ -506,7 +520,8 @@ final class SubsetTest extends TestUtil
 
         $this->assertArrayHasKey('loca', $table);
         $this->assertSame(4, $this->getTableRecordInt($table, 'loca', 'length'));
-        $this->assertSame(4, $this->getTableRecordInt($table, 'glyf', 'length'));
+        // Per the OpenType spec the record length is the actual data length (3), not the 4-byte-padded length.
+        $this->assertSame(3, $this->getTableRecordInt($table, 'glyf', 'length'));
         $this->assertSame(0, \strlen($this->getTableRecordString($table, 'loca', 'data')) % 4);
         $this->assertSame(0, \strlen($this->getTableRecordString($table, 'glyf', 'data')) % 4);
     }
