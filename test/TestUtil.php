@@ -38,7 +38,7 @@ use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
  */
 
 #[PreserveGlobalState(false)]
-#[RunTestsInSeparateProcesses]
+//#[RunTestsInSeparateProcesses]
 class TestUtil extends TestCase
 {
     use FontDataTrait;

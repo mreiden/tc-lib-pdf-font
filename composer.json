@@ -36,7 +36,7 @@
     "ext-mbstring": "*",
     "ext-pcre": "*",
     "ext-zlib": "*",
-    "tecnickcom/tc-lib-file": "dev-byte-bitwise as 3.99.99",
+    "tecnickcom/tc-lib-file": "dev-local as 3.99.99",
     "tecnickcom/tc-lib-pdf-encrypt": "^2.5",
     "tecnickcom/tc-lib-unicode-data": "^2.3"
   },
