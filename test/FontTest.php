@@ -16,6 +16,10 @@
 
 namespace Test;
 
+use Com\Tecnick\File\File;
+use Com\Tecnick\Pdf\Font\Exception as FontException;
+use Com\Tecnick\Pdf\Font\Font;
+
 /**
  * Font Test
  *
@@ -31,12 +35,11 @@ class FontTest extends TestUtil
 {
     // Verifies the constructor rejects a path-traversal ifile ('../font.json') via the file helper's
     // safety check, preventing font definitions from being loaded outside allowed paths.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    /** @throws FontException */
     public function testFontRejectsUnsafeInputDefinitionPath(): void
     {
-        $this->bcExpectException(\Com\Tecnick\Pdf\Font\Exception::class);
-        $this->setupTest();
-        new \Com\Tecnick\Pdf\Font\Font(
+        $this->ExpectException(FontException::class);
+        new Font(
             'helvetica',
             '',
             '../font.json',
@@ -44,7 +47,7 @@ class FontTest extends TestUtil
             true,
             false,
             true,
-            new \Com\Tecnick\File\File(),
+            new File(),
         );
     }
 }

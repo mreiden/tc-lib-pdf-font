@@ -29,11 +29,6 @@ class StackUnicodeWidthTest extends TestUtil
 {
     private const HELVETICA_AFM = __DIR__ . '/../util/vendor/tecnickcom/tc-font-mirror/core/Helvetica.afm';
 
-    private function prepareTestEnvironment(): void
-    {
-        parent::setupTest();
-    }
-
     private function fontPath(): string
     {
         return parent::getFontPath();
@@ -64,7 +59,7 @@ class StackUnicodeWidthTest extends TestUtil
     {
         $stack = $this->loadHelveticaStack();
         // em-dash U+2014 → AFM width 1000, at 10pt with stretching=1: 1000 * (10/1000) * 1 = 10.0
-        $this->bcAssertEqualsWithDelta(10.0, $stack->getCharWidth(0x2014), 0.001);
+        $this->assertEqualsWithDelta(10.0, $stack->getCharWidth(0x2014), 0.001);
     }
 
     // Verifies getCharWidth() resolves the en-dash (U+2013) via the cwu Unicode table.
@@ -77,7 +72,7 @@ class StackUnicodeWidthTest extends TestUtil
     {
         $stack = $this->loadHelveticaStack();
         // en-dash U+2013 → AFM width 556
-        $this->bcAssertEqualsWithDelta(5.56, $stack->getCharWidth(0x2013), 0.001);
+        $this->assertEqualsWithDelta(5.56, $stack->getCharWidth(0x2013), 0.001);
     }
 
     // Verifies getCharWidth() resolves the bullet (U+2022) via the cwu Unicode table.
@@ -90,7 +85,7 @@ class StackUnicodeWidthTest extends TestUtil
     {
         $stack = $this->loadHelveticaStack();
         // bullet U+2022 → AFM width 350
-        $this->bcAssertEqualsWithDelta(3.5, $stack->getCharWidth(0x2022), 0.001);
+        $this->assertEqualsWithDelta(3.5, $stack->getCharWidth(0x2022), 0.001);
     }
 
     // Verifies getCharWidth() resolves the Euro sign (U+20AC) via the cwu Unicode table.
@@ -103,7 +98,7 @@ class StackUnicodeWidthTest extends TestUtil
     {
         $stack = $this->loadHelveticaStack();
         // Euro U+20AC → AFM width 556
-        $this->bcAssertEqualsWithDelta(5.56, $stack->getCharWidth(0x20AC), 0.001);
+        $this->assertEqualsWithDelta(5.56, $stack->getCharWidth(0x20AC), 0.001);
     }
 
     // Sanity check: getCharWidth() still resolves an ASCII char (space U+0020), guarding against
@@ -117,7 +112,7 @@ class StackUnicodeWidthTest extends TestUtil
     {
         $stack = $this->loadHelveticaStack();
         // space U+0020 → AFM width 278 (sanity check, no regression)
-        $this->bcAssertEqualsWithDelta(2.78, $stack->getCharWidth(0x20), 0.001);
+        $this->assertEqualsWithDelta(2.78, $stack->getCharWidth(0x20), 0.001);
     }
 
     // Verifies getCharWidth() returns 0 for the soft hyphen (U+00AD), which is non-printing (hyphenation only).

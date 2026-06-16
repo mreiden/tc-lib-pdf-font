@@ -16,7 +16,9 @@
 
 namespace Test;
 
-class LoadTestHarness extends \Com\Tecnick\Pdf\Font\Load
+use Com\Tecnick\Pdf\Font\Load;
+
+class LoadTestHarness extends Load
 {
     public function __construct(string $key, string $name)
     {

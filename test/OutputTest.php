@@ -20,12 +20,15 @@ namespace Test;
 
 use Com\Tecnick\File\Exception as FileException;
 use Com\Tecnick\Pdf\Encrypt\Encrypt;
+use Com\Tecnick\Pdf\Encrypt\Exception as EncryptException;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
 use Com\Tecnick\Pdf\Font\Import;
 use Com\Tecnick\Pdf\Font\Output;
 use Com\Tecnick\Pdf\Font\Stack;
 use Com\Tecnick\Pdf\Font\Trait\FontDataTrait;
 use PHPUnit\Framework\Attributes\Test;
+use RangeException;
+use ReflectionException;
 
 /**
  * Output Test
@@ -61,7 +64,7 @@ class OutputTest extends TestUtil
     /**
      * @throws FileException
      * @throws FontException
-     * @throws \RangeException
+     * @throws RangeException
      * @throws \ReflectionException
      */
     #[Test]
@@ -135,7 +138,7 @@ class OutputTest extends TestUtil
         // Empty font array: constructor still runs without error; all output methods
         // return empty strings because there is nothing to iterate over.
         $encrypt = $this->createEncrypt();
-        $output = new \Com\Tecnick\Pdf\Font\Output([], 1, $encrypt, null);
+        $output = new Output([], 1, $encrypt, null);
 
         $this->assertSame('', $output->getFontsBlock());
         $this->assertSame('', $output->getOutFontDict());
@@ -154,7 +157,7 @@ class OutputTest extends TestUtil
     {
         // A font entry with an unrecognised type triggers the default branch of the
         // match expression inside getFontDefinitions, which throws FontException.
-        $this->bcExpectException(\Com\Tecnick\Pdf\Font\Exception::class);
+        $this->expectException(FontException::class);
 
         $encrypt = $this->createEncrypt();
 
@@ -163,27 +166,27 @@ class OutputTest extends TestUtil
         $fonts = ['unknown_key' => $this->getFontTemplate()];
         $fonts['unknown_key']['type'] = 'UnknownType';
 
-        new \Com\Tecnick\Pdf\Font\Output($fonts, 1, $encrypt, null);
+        new Output($fonts, 1, $encrypt, null);
     }
 
     // Verifies a subsetted TrueType-Unicode font emits a valid CIDSystemInfo (Adobe/Identity/0),
     // not empty Registry/Ordering, and that the embedded font stream carries a real /Length1 (>1000
     // bytes) so a non-trivial subset glyph program is actually written.
     /**
+     * @throws EncryptException
      * @throws FileException
      * @throws FontException
-     * @throws \RangeException
-     * @throws \ReflectionException
+     * @throws RangeException
+     * @throws ReflectionException
      */
     #[Test]
     public function testSubsetTrueTypeUnicodeOutputUsesValidCidSystemInfoAndFontStream(): void
     {
-        $this->prepareTestEnvironment();
         $indir = \dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/';
 
         $objnum = 1;
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSans.ttf');
+        $stack = new Stack(1);
+        new Import($indir . 'freefont/FreeSans.ttf');
         $stack->add($objnum, 'freesans', '', '', true);
 
         // Ensure at least a few glyphs are included in the subset.
@@ -192,7 +195,7 @@ class OutputTest extends TestUtil
         }
 
         $encrypt = $this->createEncrypt();
-        $output = new \Com\Tecnick\Pdf\Font\Output($stack->getFonts(), $objnum, $encrypt, null);
+        $output = new Output($stack->getFonts(), $objnum, $encrypt, null);
         $out = $output->getFontsBlock();
 
         $this->assertStringNotContainsString('/Registry () /Ordering ()', $out);
@@ -210,20 +213,20 @@ class OutputTest extends TestUtil
     // array_merge'd) so the integer Unicode keys survive, and that chars flagged 0/false are
     // dropped by array_filter. Inspects the protected $subchars map via reflection.
     /**
+     * @throws EncryptException
      * @throws FileException
      * @throws FontException
-     * @throws \RangeException
-     * @throws \ReflectionException
+     * @throws RangeException
+     * @throws ReflectionException
      */
     #[Test]
     public function testSubsetCharMergePreservesUnicodeKeys(): void
     {
-        $this->prepareTestEnvironment();
         $indir = \dirname(__DIR__) . '/util/vendor/tecnickcom/tc-font-mirror/';
 
         $objnum = 1;
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
-        new \Com\Tecnick\Pdf\Font\Import($indir . 'freefont/FreeSans.ttf');
+        $stack = new Stack(1);
+        new Import($indir . 'freefont/FreeSans.ttf');
         $stack->add($objnum, 'freesans', '', '', true);
 
         $fonts = $stack->getFonts();
@@ -246,7 +249,7 @@ class OutputTest extends TestUtil
         ]);
 
         $encrypt = $this->createEncrypt();
-        $output = new \Com\Tecnick\Pdf\Font\Output($fonts, $objnum, $encrypt, null);
+        $output = new Output($fonts, $objnum, $encrypt, null);
 
         $ref = new \ReflectionClass($output);
         $prop = $ref->getProperty('subchars');
@@ -292,29 +295,26 @@ class OutputTest extends TestUtil
 
     // Verifies getFontFullPath() throws FontException when the named file is not found in any of
     // its search directories, rather than returning a bogus path.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    /** @throws FontException */
     #[Test]
     public function testGetFontFullPathThrowsForMissingFile(): void
     {
-        $this->setupTest();
         $outfont = new OutputTestOutFont();
-        $this->bcExpectException(\Com\Tecnick\Pdf\Font\Exception::class);
+        $this->expectException(FontException::class);
         $outfont->runGetFontFullPath($this->getFontPath(), 'not-here.bin');
     }
 
     // Verifies that subsetting a font whose file data is not gzip-compressed fails: getFontFiles()
     // runs Compression::uncompress() on subset fonts, and bad data surfaces as a FontException.
     /**
+     * @throws EncryptException
      * @throws FileException
      * @throws FontException
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
     #[Test]
     public function testOutputRejectsSubsetFromPlainFileData(): void
     {
-        $this->prepareTestEnvironment();
-        $this->bcExpectException(\Com\Tecnick\Pdf\Font\Exception::class);
-
         $tmpfile = $this->getFontPath() . 'plain-font.bin';
         \file_put_contents($tmpfile, 'not-gzip-data');
 
@@ -331,7 +331,8 @@ class OutputTest extends TestUtil
         $encrypt = $this->createEncrypt();
         \set_error_handler(static fn(): bool => true);
         try {
-            new \Com\Tecnick\Pdf\Font\Output(['plain' => $font], 1, $encrypt, null);
+            $this->expectException(FontException::class);
+            new Output(['plain' => $font], 1, $encrypt, null);
         } finally {
             \restore_error_handler();
         }
@@ -340,9 +341,10 @@ class OutputTest extends TestUtil
     // Verifies a non-subset TrueType simple font emits /Subtype/TrueType and falls back to
     // /Encoding/WinAnsiEncoding when no encoding Differences object is present.
     /**
+     * @throws EncryptException
      * @throws FileException
      * @throws FontException
-     * @throws \ReflectionException
+     * @throws ReflectionException
      */
     #[Test]
     public function testOutputBuildsTrueTypeDefinitionWithDefaultEncoding(): void
@@ -358,7 +360,7 @@ class OutputTest extends TestUtil
         $font['cw'] = [32 => 250, 65 => 700];
 
         $encrypt = $this->createEncrypt();
-        $output = new \Com\Tecnick\Pdf\Font\Output(['truetypefont' => $font], 1, $encrypt, null);
+        $output = new Output(['truetypefont' => $font], 1, $encrypt, null);
         $block = $output->getFontsBlock();
 
         $this->assertStringContainsString('/Subtype/TrueType', $block);
@@ -402,7 +404,7 @@ class OutputTest extends TestUtil
         ];
 
         $encrypt = $this->createEncrypt();
-        $output = new \Com\Tecnick\Pdf\Font\Output(['cidfont0' => $font], 1, $encrypt, null);
+        $output = new Output(['cidfont0' => $font], 1, $encrypt, null);
         $block = $output->getFontsBlock();
 
         $this->assertStringContainsString('/Subtype/Type0', $block);

@@ -18,10 +18,12 @@ declare(strict_types=1);
 
 namespace Test;
 
+use Com\Tecnick\File\Exception as FileException;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
 use Com\Tecnick\Pdf\Font\Import;
 use Com\Tecnick\Pdf\Font\Stack;
 use PHPUnit\Framework\Attributes\Test;
+use RangeException;
 
 /**
  * Buffer Test
@@ -54,19 +56,18 @@ class BufferTest extends TestUtil
     }
 
     // Verifies addSubsetChar() throws when the target font has not been loaded into the buffer.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    /** @throws FontException */
     #[Test]
     public function testAddSubsetCharOnMissingFontThrows(): void
     {
-        $this->bcExpectException(\Com\Tecnick\Pdf\Font\Exception::class);
-        $this->setupTest();
-        $stack = new \Com\Tecnick\Pdf\Font\Stack(1);
+        $stack = new Stack(1);
+        $this->expectException(FontException::class);
         $stack->addSubsetChar('missing', 65);
     }
 
-    #[Test]
     // Verifies getFont() throws when asked for a key that is not present in the buffer.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    #[Test]
+    /** @throws FontException */
     public function testStackMissingKey(): void
     {
         $stack = new Stack(1);
@@ -74,9 +75,9 @@ class BufferTest extends TestUtil
         $stack->getFont('missing');
     }
 
-    #[Test]
     // Verifies add() throws when given an empty font family name.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    #[Test]
+    /** @throws FontException */
     public function testStackMissingFontName(): void
     {
         $stack = new Stack(1);
@@ -85,9 +86,9 @@ class BufferTest extends TestUtil
         $stack->add($objnum, '');
     }
 
-    #[Test]
     // Verifies add() throws when the explicitly supplied definition file path does not exist.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    #[Test]
+    /** @throws FontException */
     public function testStackIFileMissing(): void
     {
         $stack = new Stack(1);
@@ -96,9 +97,9 @@ class BufferTest extends TestUtil
         $stack->add($objnum, 'something', '', '/missing/nothere.json');
     }
 
-    #[Test]
     // Verifies add() throws when the definition file is not valid JSON (here, a PHP source file).
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    #[Test]
+    /** @throws FontException */
     public function testStackIFileNotJson(): void
     {
         $stack = new Stack(1);
@@ -107,9 +108,9 @@ class BufferTest extends TestUtil
         $stack->add($objnum, 'something', '', __DIR__ . '/StackTest.php');
     }
 
-    #[Test]
     // Verifies add() throws when the JSON parses but lacks required font fields (missing 'type').
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    #[Test]
+    /** @throws FontException */
     public function testStackIFileWrongFormat(): void
     {
         \file_put_contents($this->getFontPath() . 'badformat.json', '{"bad":"format"}');
@@ -120,9 +121,9 @@ class BufferTest extends TestUtil
         $stack->add($objnum, 'something', '', $this->getFontPath() . 'badformat.json');
     }
 
-    #[Test]
     // Verifies add() rejects a definition path containing '..' traversal segments (path-traversal guard).
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    #[Test]
+    /** @throws FontException */
     public function testLoadFileDoubleDots(): void
     {
         $stack = new Stack(1);
@@ -194,9 +195,9 @@ class BufferTest extends TestUtil
         $this->assertEquals(600, $font['dw']);
     }
 
-    #[Test]
     // Verifies default width (dw) is taken from the space glyph width cw[32] when MissingWidth is absent.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    #[Test]
+    /** @throws FontException */
     public function testLoadDefaultWidthB(): void
     {
         \file_put_contents($this->getFontPath() . 'test.json', '{"type":"Type1","cw":{"32":123}}');
@@ -208,9 +209,9 @@ class BufferTest extends TestUtil
         $this->assertEquals(123, $font['dw']);
     }
 
-    #[Test]
     // Verifies default width (dw) prefers desc.MissingWidth over cw when it is greater than zero.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    #[Test]
+    /** @throws FontException */
     public function testLoadDefaultWidthC(): void
     {
         \file_put_contents(
@@ -225,9 +226,9 @@ class BufferTest extends TestUtil
         $this->assertEquals(234, $font['dw']);
     }
 
-    #[Test]
     // Verifies add() throws when the definition declares an unrecognized font type.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    #[Test]
+    /** @throws FontException */
     public function testLoadWrongType(): void
     {
         \file_put_contents($this->getFontPath() . 'test.json', '{"type":"WRONG","cw":{"0":600}}');
@@ -239,9 +240,9 @@ class BufferTest extends TestUtil
         $stack->add($objnum, 'test', '', $this->getFontPath() . 'test.json');
     }
 
-    #[Test]
     // Verifies add() throws for a non-embedded CID0 font in PDF/A mode, where all fonts must be embedded.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    #[Test]
+    /** @throws FontException */
     public function testLoadCidOnPdfa(): void
     {
         \file_put_contents($this->getFontPath() . 'test.json', '{"type":"cidfont0","cw":{"0":600}}');
@@ -253,9 +254,9 @@ class BufferTest extends TestUtil
         $stack->add($objnum, 'test', '', $this->getFontPath() . 'test.json', false);
     }
 
-    #[Test]
     // Verifies a Core font flagged fakestyle with bold+italic loads successfully and returns a non-empty key.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    #[Test]
+    /** @throws FontException */
     public function testLoadArtificialStyles(): void
     {
         \file_put_contents(
@@ -270,9 +271,9 @@ class BufferTest extends TestUtil
     }
 
     /**
-     * @throws \Com\Tecnick\File\Exception
-     * @throws \Com\Tecnick\Pdf\Font\Exception
-     * @throws \RangeException
+     * @throws FileException
+     * @throws FontException
+     * @throws RangeException
      */
     // End-to-end: imports and adds real Type1/Core/TrueTypeUnicode fonts (incl. style variants and subsets),
     // asserting object numbering, font/encoding-diff counts, and resolved name/type for loaded keys.
@@ -329,13 +330,13 @@ class BufferTest extends TestUtil
         $this->assertNotEmpty($font);
     }
 
-    #[Test]
     // Verifies that in PDF/A mode an embedded core-substitute font ('arial' -> pdfahelvetica) loads
     // under its PDF/A-prefixed key, confirming core fonts are remapped for embedding.
+    #[Test]
     /**
-     * @throws \Com\Tecnick\File\Exception
-     * @throws \Com\Tecnick\Pdf\Font\Exception
-     * @throws \RangeException
+     * @throws FileException
+     * @throws FontException
+     * @throws RangeException
      */
     public function testBufferPdfa(): void
     {

@@ -30,6 +30,7 @@ use Com\Tecnick\Pdf\Font\Import\TrueType;
 use Com\Tecnick\Pdf\Font\Import\TypeOne;
 use Com\Tecnick\Pdf\Font\Trait\FontDataTrait;
 use Com\Tecnick\Unicode\Data\Encoding;
+use RangeException;
 
 /**
  * Com\Tecnick\Pdf\Font\Import
@@ -105,11 +106,11 @@ class Import
      *                            Reserved, 10 = UCS-4.
      * @param bool   $linked      If true, links the font file to system font instead of copying the font data
      *                            (not transportable). Note: this option does not work with Type1 fonts.
-     * @param ObjFile|null        $fileHelper Optional file helper for font loading.
+     * @param ObjFile|null $fileHelper Optional file helper for font loading.
      *
      * @throws FileException in case of error
      * @throws FontException in case of error
-     * @throws \RangeException in case of byte-range errors
+     * @throws RangeException in case of byte-range errors
      */
     public function __construct(
         string $file,
@@ -149,11 +150,11 @@ class Import
 
         // get font data
         if (!\is_file($file)) {
-            throw new FontException('invalid font file: ' . $file);
+            throw new FontException("invalid font file: $file");
         }
 
         if (($font = $this->fileHelper->getLocalFileData($file)) === false) {
-            throw new FontException('unable to read the input font file: ' . $file);
+            throw new FontException("unable to read the input font file: $file");
         }
 
         $this->font = $font;
@@ -590,8 +591,8 @@ class Import
      * Character Identifier index to its zero-based glyph id index.
      *
      * @param string $map CIDToGIDMap (binary).
-     * @param int    $cid CID value.
-     * @param int    $gid GID value.
+     * @param int $cid CID value.
+     * @param int $gid GID value.
      */
     protected function updateCIDtoGIDmap(string &$map, int $cid, int $gid): void
     {

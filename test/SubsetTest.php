@@ -22,12 +22,12 @@ use Com\Tecnick\File\Byte;
 use Com\Tecnick\File\Exception as FileException;
 use Com\Tecnick\Pdf\Font\Exception as FontException;
 use Com\Tecnick\Pdf\Font\Import;
-use Com\Tecnick\Pdf\Font\Import\TrueType;
 use Com\Tecnick\Pdf\Font\Subset;
 use Com\Tecnick\Pdf\Font\Trait\FontDataTrait;
-use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use ReflectionException;
+use ReflectionProperty;
 
 /**
  * Subset Test
@@ -86,16 +86,23 @@ final class SubsetTest extends TestUtil
         return $fonts[$filename];
     }
 
+    /**
+     * @throws ReflectionException
+     */
     private function setProp(object $obj, string $name, mixed $value): void
     {
-        $prop = new \ReflectionProperty($obj, $name);
+        $prop = new ReflectionProperty($obj, $name);
         $prop->setValue($obj, $value);
     }
 
-    /** @return array<array-key, mixed> */
+    /**
+     * @return array<array-key, mixed>
+     *
+     * @throws ReflectionException
+     */
     private function getDefaultFdt(): array
     {
-        $ref = new \ReflectionClass(\Com\Tecnick\Pdf\Font\Subset::class);
+        $ref = new \ReflectionClass(Subset::class);
         $prop = $ref->getProperty('fdt');
         $instance = $ref->newInstanceWithoutConstructor();
 
@@ -139,14 +146,13 @@ final class SubsetTest extends TestUtil
     }
 
     // Verifies getTableChecksum() zero-pads a length-3 table to a 4-byte word before summing, so partial trailing words checksum correctly.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    /** @throws FontException */
     #[Test]
     public function testTableChecksumPadsTrailingBytes(): void
     {
-        $subset = new class() extends \Com\Tecnick\Pdf\Font\Subset {
+        $subset = new class() extends Subset {
             public function __construct() {}
 
-            /** @throws \Com\Tecnick\Pdf\Font\Exception */
             public function checksum(string $table, int $length): int
             {
                 return $this->getTableChecksum($table, $length);
@@ -158,23 +164,22 @@ final class SubsetTest extends TestUtil
     }
 
     // Verifies getTableChecksum() sums a full 32-bit word plus a zero-padded partial word and wraps modulo 2^32.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    /** @throws FontException */
     #[Test]
     public function testTableChecksumHandlesMixedFullAndPartialWords(): void
     {
-        $subset = new class() extends \Com\Tecnick\Pdf\Font\Subset {
+        $subset = new class() extends Subset {
             public function __construct() {}
 
-            /** @throws \Com\Tecnick\Pdf\Font\Exception */
-            public function checksum(string $table, int $length): int
+            public function checksum(string $table): int
             {
-                return $this->getTableChecksum($table, $length);
+                return $this->getTableChecksum($table);
             }
         };
 
         $table = "\x11\x22\x33\x44\x55\x66\x77";
         // 0x11223344 + 0x55667700, modulo 2^32
-        $this->assertSame(0x6688AA44, $subset->checksum($table, 7));
+        $this->assertSame(0x6688AA44, $subset->checksum($table));
     }
 
     // -------------------------------------------------------------------------
@@ -187,7 +192,7 @@ final class SubsetTest extends TestUtil
     {
         // Build an anonymous subclass that exposes removeUnusedTables and lets us
         // inspect the resulting fdt without running the full constructor chain.
-        $subset = new class() extends \Com\Tecnick\Pdf\Font\Subset {
+        $subset = new class() extends Subset {
             public function __construct() {}
 
             public function run(): void
@@ -203,11 +208,11 @@ final class SubsetTest extends TestUtil
         };
 
         // A font binary with 8 bytes of head data (for substr to not be empty)
-        $font = str_repeat("\x00", 64);
+        $font = \str_repeat("\x00", 64);
         $this->setProp($subset, 'font', $font);
 
         // Provide two tables: 'head' (known → kept) and 'xxxx' (unknown → removed)
-        $this->setProp($subset, 'fdt', array_merge($this->getDefaultFdt(), [
+        $this->setProp($subset, 'fdt', \array_merge($this->getDefaultFdt(), [
             'table' => [
                 'head' => ['offset' => 0, 'length' => 8, 'checkSum' => 0, 'data' => ''],
                 'xxxx' => ['offset' => 0, 'length' => 8, 'checkSum' => 0, 'data' => ''],
@@ -229,7 +234,7 @@ final class SubsetTest extends TestUtil
     #[Test]
     public function testAddProcessedTablesBuildsLocaAndGlyfFromSubsetGlyphs(): void
     {
-        $subset = new class() extends \Com\Tecnick\Pdf\Font\Subset {
+        $subset = new class() extends Subset {
             public function __construct() {}
 
             public function run(): void
@@ -247,14 +252,14 @@ final class SubsetTest extends TestUtil
         };
 
         // Font data: 12 bytes (glyf table at offset 0, 12 bytes of raw glyph data)
-        $font = str_repeat("\xAB", 12);
+        $font = \str_repeat("\xAB", 12);
         $this->setProp($subset, 'font', $font);
 
         // subglyphs: only glyph 0 is in the subset
         $this->setProp($subset, 'subglyphs', [0 => 0]);
 
         // Inject the fdt state the method needs
-        $this->setProp($subset, 'fdt', array_replace_recursive($this->getDefaultFdt(), [
+        $this->setProp($subset, 'fdt', \array_replace_recursive($this->getDefaultFdt(), [
             'tot_num_glyphs' => 2,
             'short_offset' => false, // long (Offset32) loca entries
             'indexToLoc' => [0 => 0, 1 => 8], // glyph 0 is 8 bytes
@@ -286,14 +291,14 @@ final class SubsetTest extends TestUtil
     }
 
     // Verifies buildSubsetFont() writes a correct table-record offset (28 = 12-byte sfnt header + one 16-byte record) for a single-table font.
-    /** @throws \Com\Tecnick\Pdf\Font\Exception */
+    /** @throws FontException */
     #[Test]
     public function testBuildSubsetFontKeepsTableDirectoryOffsetsIntact(): void
     {
-        $subset = new class() extends \Com\Tecnick\Pdf\Font\Subset {
+        $subset = new class() extends Subset {
             public function __construct() {}
 
-            /** @throws \Com\Tecnick\Pdf\Font\Exception */
+            /** @throws FontException */
             public function run(): void
             {
                 // removeUnusedTables calculates offset, length, and checksums all tables
@@ -307,12 +312,12 @@ final class SubsetTest extends TestUtil
             }
         };
 
-        $this->setProp($subset, 'fdt', array_merge($this->getDefaultFdt(), [
+        $this->setProp($subset, 'fdt', \array_merge($this->getDefaultFdt(), [
             'table' => [
                 // Offsets in fdt are relative to the 12-byte sfnt header.
                 'head' => [
                     'checkSum' => 0,
-                    'data' => str_repeat("\x00", 12),
+                    'data' => \str_repeat("\x00", 12),
                     'length' => 12,
                     'offset' => 12,
                 ],
@@ -334,7 +339,7 @@ final class SubsetTest extends TestUtil
     #[Test]
     public function testAddProcessedTablesUsesNextAvailableLocaIndexWhenImmediateIsMissing(): void
     {
-        $subset = new class() extends \Com\Tecnick\Pdf\Font\Subset {
+        $subset = new class() extends Subset {
             public function __construct() {}
 
             public function run(): void
@@ -350,13 +355,13 @@ final class SubsetTest extends TestUtil
         };
 
         // 8 bytes for glyph 0 followed by 8 bytes for glyph 1.
-        $font = str_repeat("\xAB", 16);
+        $font = \str_repeat("\xAB", 16);
         $this->setProp($subset, 'font', $font);
         $this->setProp($subset, 'subglyphs', [0 => 0]);
 
         // Simulate parser output where index 1 was removed as duplicate-empty marker.
         // Glyph 0 must still use index 2 as the closing boundary.
-        $this->setProp($subset, 'fdt', array_merge($this->getDefaultFdt(), [
+        $this->setProp($subset, 'fdt', \array_merge($this->getDefaultFdt(), [
             'tot_num_glyphs' => 3,
             'short_offset' => false,
             'indexToLoc' => [0 => 0, 2 => 8, 3 => 16],
@@ -383,7 +388,7 @@ final class SubsetTest extends TestUtil
     #[Test]
     public function testAddCompositeGlyphsPreservesNumericGlyphIndexes(): void
     {
-        $subset = new class() extends \Com\Tecnick\Pdf\Font\Subset {
+        $subset = new class() extends Subset {
             private bool $added = false;
 
             public function __construct() {}
@@ -437,7 +442,7 @@ final class SubsetTest extends TestUtil
     #[Test]
     public function testFindCompositeGlyphsParsesScaleAndTwoByTwoComponents(): void
     {
-        $subset = new class() extends \Com\Tecnick\Pdf\Font\Subset {
+        $subset = new class() extends Subset {
             public function __construct() {}
 
             /**
@@ -479,7 +484,7 @@ final class SubsetTest extends TestUtil
     #[Test]
     public function testAddProcessedTablesCreatesShortLocaAndPadsTables(): void
     {
-        $subset = new class() extends \Com\Tecnick\Pdf\Font\Subset {
+        $subset = new class() extends Subset {
             public function __construct() {}
 
             public function run(): void
@@ -543,7 +548,7 @@ final class SubsetTest extends TestUtil
         foreach ($fdt['table'] as $table => $vals) {
             $data = \substr($strFont, $vals['offset'], $vals['length']);
             if ($table === 'head') {
-                $data = substr_replace($data, "\0\0\0\0", 8, 4);
+                $data = \substr_replace($data, "\0\0\0\0", 8, 4);
             }
 
             $checksum = Subset::getTableChecksum($data);
@@ -656,7 +661,7 @@ final class SubsetTest extends TestUtil
         foreach ($subsetFdt['table'] as $table => $vals) {
             $data = \substr($subsetStrFont, $vals['offset'], $vals['length']);
             if ($table === 'head') {
-                $data = substr_replace($data, "\0\0\0\0", 8, 4);
+                $data = \substr_replace($data, "\0\0\0\0", 8, 4);
             }
             $checksum = Subset::getTableChecksum($data);
 

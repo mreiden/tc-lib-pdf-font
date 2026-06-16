@@ -725,7 +725,7 @@ class TrueType
             $this->fdt['Flags'] |= 1;
         }
 
-        // Return early if this is not a debug font subset.
+        // Skip the postscript character names unless building a debug font file was specified.
         if (!$this->subsetMode->debug()) {
             return;
         }
@@ -817,7 +817,7 @@ class TrueType
 
     /**
      * Get the Maximum Profile Table (TTF maxp table)
-     *  0 - Version16Dot16  version          Table version number (0.5=0x00005000, 1.0=0x00010000)
+     *  0 - Version16Dot16  version          Table version number (0.5=0x0000_5000, 1.0=0x0001_0000)
      *  4 - uint16          numGlyphs        The number of glyphs in the font
      *
      * ... There are additional fields in Table Version 1.0...

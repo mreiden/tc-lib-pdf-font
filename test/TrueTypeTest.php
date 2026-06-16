@@ -23,6 +23,8 @@ use Com\Tecnick\Pdf\Font\Import\TrueType;
 use Com\Tecnick\Pdf\Font\Trait\FontDataTrait;
 use Com\Tecnick\File\Byte;
 use PHPUnit\Framework\Attributes\Test;
+use ReflectionException;
+use ReflectionProperty;
 
 /**
  * TrueType Test
@@ -502,7 +504,7 @@ class TrueTypeTest extends TestUtil
             'type' => 'TrueTypeUnicode',
         ]);
 
-        $this->bcExpectException(FontException::class);
+        $this->expectException(FontException::class);
         $this->invokeMethod($instance, 'getCIDToGIDMap');
     }
 
@@ -646,7 +648,7 @@ class TrueTypeTest extends TestUtil
             'type' => 'TrueTypeUnicode',
         ]);
 
-        $this->bcExpectException(FontException::class);
+        $this->expectException(FontException::class);
         $this->invokeMethod($instance, 'getCIDToGIDMap');
     }
 
@@ -661,7 +663,7 @@ class TrueTypeTest extends TestUtil
             'type' => 'TrueTypeUnicode',
         ]);
 
-        $this->bcExpectException(FontException::class);
+        $this->expectException(FontException::class);
         $this->invokeMethod($instance, 'getCIDToGIDMap');
     }
 
@@ -701,7 +703,7 @@ class TrueTypeTest extends TestUtil
     public function testApplyEmbeddingPolicyThrowsOnRestrictedLicense(): void
     {
         $instance = $this->buildTrueType('', []);
-        $this->bcExpectException(FontException::class);
+        $this->expectException(FontException::class);
         // 0x0002 = Restricted License only
         $this->invokeMethod($instance, 'applyEmbeddingPolicy', [0x0002]);
     }
@@ -732,7 +734,7 @@ class TrueTypeTest extends TestUtil
     public function testApplyEmbeddingPolicyThrowsOnBitmapOnly(): void
     {
         $instance = $this->buildTrueType('', []);
-        $this->bcExpectException(FontException::class);
+        $this->expectException(FontException::class);
         // 0x0200 = Bitmap Embedding Only
         $this->invokeMethod($instance, 'applyEmbeddingPolicy', [0x0200]);
     }
@@ -742,7 +744,7 @@ class TrueTypeTest extends TestUtil
     public function testApplyEmbeddingPolicyThrowsOnBitmapOnlyWithEditable(): void
     {
         $instance = $this->buildTrueType('', []);
-        $this->bcExpectException(FontException::class);
+        $this->expectException(FontException::class);
         // 0x0208 = Bitmap Only | Editable — bitmap restriction still applies
         $this->invokeMethod($instance, 'applyEmbeddingPolicy', [0x0208]);
     }
@@ -810,7 +812,7 @@ class TrueTypeTest extends TestUtil
             'urk' => 1.0,
         ]);
 
-        $this->bcExpectException(FontException::class);
+        $this->expectException(FontException::class);
         $this->invokeMethod($instance, 'getOS2Metrics');
     }
 
@@ -1114,14 +1116,17 @@ class TrueTypeTest extends TestUtil
 
     protected function getProperty(TrueType $instance, string $name): mixed
     {
-        $property = new \ReflectionProperty(TrueType::class, $name);
+        $property = new ReflectionProperty(TrueType::class, $name);
 
         return $property->getValue($instance);
     }
 
+    /**
+     * @throws ReflectionException
+     */
     protected function setProperty(TrueType $instance, string $name, mixed $value): void
     {
-        $property = new \ReflectionProperty(TrueType::class, $name);
+        $property = new ReflectionProperty(TrueType::class, $name);
         $property->setValue($instance, $value);
     }
 

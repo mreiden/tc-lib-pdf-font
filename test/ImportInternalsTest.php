@@ -17,6 +17,11 @@
 namespace Test;
 
 use Com\Tecnick\Pdf\Font\Import;
+use PHPUnit\Framework\Attributes\Test;
+use ReflectionClass;
+use ReflectionException;
+use ReflectionMethod;
+use ReflectionProperty;
 
 /**
  * Tests for protected methods of Import that cannot be reached through the
@@ -34,36 +39,41 @@ class ImportInternalsTest extends TestUtil
 {
     private function buildImport(): Import
     {
-        $class = new \ReflectionClass(Import::class);
+        $class = new ReflectionClass(Import::class);
         return $class->newInstanceWithoutConstructor();
     }
 
     /**
      * @param array<int, mixed> $args
+     *
+     * @throws ReflectionException
      */
     private function callStringMethod(object $obj, string $method, array $args = []): string
     {
-        $ref = new \ReflectionMethod($obj, $method);
+        $ref = new ReflectionMethod($obj, $method);
 
-        if (!\is_string($ref->invokeArgs($obj, $args))) {
+        $result = $ref->invokeArgs($obj, $args);
+        if (!\is_string($result)) {
             $this->fail('Expected string return value.');
         }
 
-        return (string) $ref->invokeArgs($obj, $args);
+        return $result;
     }
 
     /**
      * @param array<int, mixed> $args
+     *
+     * @throws ReflectionException
      */
     private function callVoidMethod(object $obj, string $method, array $args = []): void
     {
-        $ref = new \ReflectionMethod($obj, $method);
+        $ref = new ReflectionMethod($obj, $method);
         $ref->invokeArgs($obj, $args);
     }
 
     private function setFdt(object $obj, mixed $fdt): void
     {
-        $prop = new \ReflectionProperty($obj, 'fdt');
+        $prop = new ReflectionProperty($obj, 'fdt');
         $prop->setValue($obj, $fdt);
     }
 
@@ -72,51 +82,63 @@ class ImportInternalsTest extends TestUtil
     // -------------------------------------------------------------------------
 
     // Verifies updateCIDtoGIDmap() writes the glyph id as 2 big-endian bytes at offset cid*2.
+    #[Test]
     public function testUpdateCIDtoGIDmapSetsGlyphPairBytes(): void
     {
         $instance = $this->buildImport();
         // 65536 CID slots × 2 bytes = 131072 bytes
         $map = str_repeat("\x00", 131072);
+
         // $map is passed by reference and possibly mutated
         $this->callVoidMethod($instance, 'updateCIDtoGIDmap', [&$map, 65, 42]);
+
         // gid 42 = 0x002A → high byte = 0x00, low byte = 0x2A
         $this->assertSame(0, ord($map[65 * 2]));
         $this->assertSame(42, ord($map[(65 * 2) + 1]));
     }
 
     // Verifies a CID outside 0..0xFFFF is ignored, leaving the map unchanged (no out-of-bounds write).
+    #[Test]
     public function testUpdateCIDtoGIDmapIgnoresCidOutOfRange(): void
     {
         $instance = $this->buildImport();
         $map = str_repeat("\x00", 131072);
-        // $result is a copy; updateCIDtoGIDmap mutates by reference
+
+        // $result is passed by reference and possibly mutated
         $result = $map;
         $this->callVoidMethod($instance, 'updateCIDtoGIDmap', [&$result, 0x10000, 5]);
+
         // CID 0x10000 is out of the 0..0xFFFF range → map unchanged
         $this->assertSame($map, $result);
     }
 
     // Verifies a gid above 0xFFFF wraps by subtracting 0x10000 so it fits in the 16-bit map entry.
+    #[Test]
     public function testUpdateCIDtoGIDmapTruncatesGidAbove0xffff(): void
     {
         $instance = $this->buildImport();
         $map = str_repeat("\x00", 131072);
+
         // gid = 0x1002A  →  gid -= 0x10000  →  0x002A = 42
         // $map is passed by reference and possibly mutated
         $this->callVoidMethod($instance, 'updateCIDtoGIDmap', [&$map, 0, 0x1002A]);
+
         $this->assertSame(0, ord($map[0]));
         $this->assertSame(42, ord($map[1]));
     }
 
     // Verifies a negative gid is ignored, leaving the map unchanged.
+    #[Test]
     public function testUpdateCIDtoGIDmapIgnoresNegativeGid(): void
     {
         $instance = $this->buildImport();
         $map = str_repeat("\x00", 131072);
-        // gid < 0 → condition ($gid >= 0) is false → map unchanged
-        // $result is a copy; updateCIDtoGIDmap mutates by reference
+
+        // $result is passed by reference and possibly mutated
         $result = $map;
+        // gid < 0 → condition ($gid >= 0) is false → map unchanged
         $this->callVoidMethod($instance, 'updateCIDtoGIDmap', [&$result, 10, -1]);
+
         $this->assertSame($map, $result);
     }
 
@@ -125,6 +147,7 @@ class ImportInternalsTest extends TestUtil
     // -------------------------------------------------------------------------
 
     // Verifies getEncodingTable() defaults a non-symbolic Type1 font (Flags & 4 == 0) to cp1252.
+    #[Test]
     public function testGetEncodingTableReturnsCp1252ForType1NonSymbolic(): void
     {
         $instance = $this->buildImport();
@@ -135,6 +158,7 @@ class ImportInternalsTest extends TestUtil
     }
 
     // Verifies a symbolic Type1 font (Flags & 4 != 0) gets no default encoding (empty string).
+    #[Test]
     public function testGetEncodingTableReturnsEmptyForType1Symbolic(): void
     {
         $instance = $this->buildImport();
@@ -145,6 +169,7 @@ class ImportInternalsTest extends TestUtil
     }
 
     // Verifies a TrueTypeUnicode font with empty encoding gets no default encoding (empty string).
+    #[Test]
     public function testGetEncodingTableReturnsEmptyForTrueTypeUnicode(): void
     {
         $instance = $this->buildImport();
@@ -154,6 +179,7 @@ class ImportInternalsTest extends TestUtil
     }
 
     // Verifies an explicitly supplied encoding name is sanitized and passed through unchanged.
+    #[Test]
     public function testGetEncodingTablePassesThroughExplicitEncoding(): void
     {
         $instance = $this->buildImport();
@@ -167,19 +193,22 @@ class ImportInternalsTest extends TestUtil
     // -------------------------------------------------------------------------
 
     // Verifies findOutputPath() falls back to the K_PATH_FONTS constant when no output path is given.
+    #[Test]
     public function testFindOutputPathReturnsKPathFontsWhenDefined(): void
     {
-        $this->setupTest();
         $instance = $this->buildImport();
         $result = $this->callStringMethod($instance, 'findOutputPath', ['']);
         $this->assertSame(constant('K_PATH_FONTS'), $result);
     }
 
     // Verifies a caller-supplied writable directory is used as the output path in preference to defaults.
+    #[Test]
     public function testFindOutputPathReturnsProvidedWritablePath(): void
     {
         $outdir = dirname(__DIR__) . '/target/tmptest/internals/';
-        system('mkdir -p ' . $outdir);
+        if (!is_dir($outdir)) {
+            mkdir($outdir, recursive: true);
+        }
         $instance = $this->buildImport();
         $result = $this->callStringMethod($instance, 'findOutputPath', [$outdir]);
         $this->assertSame($outdir, $result);

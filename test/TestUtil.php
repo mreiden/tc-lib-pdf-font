@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace Test;
 
+use Com\Tecnick\Pdf\Font\Trait\FontDataTrait;
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
@@ -33,13 +34,25 @@ use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link      https://github.com/tecnickcom/tc-lib-pdf-font
  *
+ * @phpstan-import-type TFontData from \Com\Tecnick\Pdf\Font\Load
  */
 
 #[PreserveGlobalState(false)]
 #[RunTestsInSeparateProcesses]
 class TestUtil extends TestCase
 {
+    use FontDataTrait;
+
     protected function setup(): void
+    {
+        $this->setupTest();
+    }
+
+    /**
+     * Prepare a clean font output directory. Exposed for tests that set up their
+     * own environment explicitly; also runs automatically via setup().
+     */
+    protected function setupTest(): void
     {
         if (!\defined('K_PATH_FONTS')) {
             \define('K_PATH_FONTS', \dirname(__DIR__) . '/target/tmptest/');
@@ -54,6 +67,26 @@ class TestUtil extends TestCase
         if (!\file_exists(K_PATH_FONTS)) {
             \mkdir(K_PATH_FONTS, recursive: true);
         }
+    }
+
+    /**
+     * Alias used by tests that prepare the environment before exercising a font.
+     */
+    protected function prepareTestEnvironment(): void
+    {
+        $this->setupTest();
+    }
+
+    /**
+     * Return a fresh copy of the default font-data structure for use as a test
+     * fixture. PHP arrays are copy-on-write, so callers may mutate the result
+     * without affecting the trait default or other tests.
+     *
+     * @return TFontData
+     */
+    protected function getFontTemplate(): array
+    {
+        return $this->fdt;
     }
 
     protected function deleteDirectoryRecursively(string $dirPath, bool $createAfterDelete = false): void

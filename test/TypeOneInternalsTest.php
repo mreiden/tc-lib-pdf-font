@@ -146,12 +146,12 @@ class TypeOneInternalsTest extends TestUtil
         'weight' => 'normal',
     ];
 
-    private function buildTypeOne(): TypeOne
+    private function buildTypeOne(string $font = ''): TypeOne
     {
         $class = new \ReflectionClass(TypeOne::class);
         $instance = $class->newInstanceWithoutConstructor();
         $this->setProp($instance, 'fdt', self::$fdtDefaults);
-        $this->setProp($instance, 'font', '');
+        $this->setProp($instance, 'font', $font);
         return $instance;
     }
 
@@ -537,10 +537,9 @@ class TypeOneInternalsTest extends TestUtil
     // Verifies storeFontData rejects font data whose first byte is not the 0x80 PFB segment marker.
     public function testStoreFontDataThrowsOnInvalidMarker(): void
     {
-        $instance = $this->buildTypeOne();
         // First byte not 128 → invalid binary Type1
-        $this->setProp($instance, 'font', "\x00\x00\x00\x00\x00\x00");
-        $this->bcExpectException(FontException::class);
+        $instance = $this->buildTypeOne("\x00\x00\x00\x00\x00\x00");
+        $this->expectException(FontException::class);
         $this->callMethod($instance, 'storeFontData', []);
     }
 }
