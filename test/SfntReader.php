@@ -106,6 +106,92 @@ final class SfntReader
     }
 
     /**
+     * Returns the bytes the glyf table stores for a glyph index.
+     *
+     * @throws \LogicException if the program carries no loca, head or glyf table.
+     */
+    public function getGlyph(int $gid): string
+    {
+        $start = $this->getLocaEntry($gid);
+
+        return \substr($this->getTable('glyf'), $start, $this->getLocaEntry($gid + 1) - $start);
+    }
+
+    /**
+     * Returns the number of glyphs the maxp table declares.
+     *
+     * @throws \LogicException if the program carries no maxp table.
+     */
+    public function getNumGlyphs(): int
+    {
+        return $this->readUShort($this->getTable('maxp'), 4);
+    }
+
+    /**
+     * Returns the numberOfHMetrics field of the hhea table.
+     *
+     * @throws \LogicException if the program carries no hhea table.
+     */
+    public function getNumberOfHMetrics(): int
+    {
+        return $this->readUShort($this->getTable('hhea'), 34);
+    }
+
+    /**
+     * Returns the advance width and the left side bearing the hmtx table stores for a glyph.
+     *
+     * A glyph past the last longHorMetric record takes the advance width of that record.
+     *
+     * @return array{0: int, 1: int}
+     *
+     * @throws \LogicException if the program carries no hhea or hmtx table.
+     */
+    public function getHorMetric(int $gid): array
+    {
+        $hmtx = $this->getTable('hmtx');
+        $numHMetrics = $this->getNumberOfHMetrics();
+        $advance = $this->readUShort($hmtx, 4 * \min($gid, $numHMetrics - 1));
+        $lsb = $this->readUShort(
+            $hmtx,
+            $gid < $numHMetrics ? (4 * $gid) + 2 : (4 * $numHMetrics) + (2 * ($gid - $numHMetrics)),
+        );
+
+        return [$advance, $lsb >= 0x8000 ? $lsb - 0x1_0000 : $lsb];
+    }
+
+    /**
+     * Returns the component glyph indices of a composite glyph, keyed by the position of
+     * each index in the glyph bytes, or an empty array for a simple glyph.
+     *
+     * @return array<int, int>
+     */
+    public function getComponents(string $glyph): array
+    {
+        // a composite glyph has a negative numberOfContours
+        if (\strlen($glyph) < 10 || (\ord($glyph[0]) & 0x80) === 0) {
+            return [];
+        }
+
+        $components = [];
+        $pos = 10;
+        do {
+            $flags = $this->readUShort($glyph, $pos);
+            $components[$pos + 2] = $this->readUShort($glyph, $pos + 2);
+            // the arguments are 16-bit when ARG_1_AND_2_ARE_WORDS (bit 0) is set, then the
+            // transform holds one, two or four F2DOT14 values (bits 3, 6 and 7)
+            $pos += ($flags & 1) !== 0 ? 8 : 6;
+            $pos += match (true) {
+                ($flags & 8) !== 0 => 2,
+                ($flags & 64) !== 0 => 4,
+                ($flags & 128) !== 0 => 8,
+                default => 0,
+            };
+        } while (($flags & 32) !== 0 && ($pos + 4) <= \strlen($glyph));
+
+        return $components;
+    }
+
+    /**
      * Returns the glyf offset the loca table declares for a glyph index.
      *
      * @throws \LogicException if the program carries no loca or head table.

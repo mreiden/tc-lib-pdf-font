@@ -292,10 +292,11 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
             . $fontdw
             . "\n"
             . ($font['gidenc'] ? $this->getGidWidths($font) : $this->getCharWidths($font, 0));
-        if ($font['gidenc']) {
+        if ($font['gidenc'] && $font['gidmap'] === []) {
             // the character codes are the glyph indices themselves
             $out .= "\n" . '/CIDToGIDMap /Identity';
-        } elseif ($fontctg !== '') {
+        } elseif ($font['gidenc'] || $fontctg !== '') {
+            // a compacted subset renumbered the glyphs the character codes name
             $out .= "\n" . '/CIDToGIDMap ' . ($this->pon + 2) . ' 0 R';
         }
 
@@ -315,7 +316,9 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
 
         $out .= ' >>' . "\n" . 'endobj' . "\n";
 
-        if ($fontctg !== '' && !$font['gidenc']) {
+        if ($font['gidenc'] && $font['gidmap'] !== []) {
+            $out .= $this->getCompactCidToGidMap($font);
+        } elseif ($fontctg !== '' && !$font['gidenc']) {
             $out .= ++$this->pon . ' 0 obj' . "\n";
             // embed the CIDToGIDMap: the mapping from CIDs to glyph indices
             $ctgfile = \strtolower($fontctg);
@@ -335,6 +338,49 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
         }
 
         return $out;
+    }
+
+    /**
+     * Returns the CIDToGIDMap stream object of a font whose subset renumbered its glyphs.
+     *
+     * The character codes are the original glyph indices, so each one is mapped to the index
+     * its glyph takes in the subset, up to the largest code used.
+     *
+     * @param TFontData $font Font to process
+     *
+     * @throws EncException
+     * @throws FontException
+     */
+    protected function getCompactCidToGidMap(array $font): string
+    {
+        $maxcid = \max(0, ...\array_keys($font['gidmap']));
+        $map = '';
+        for ($cid = 0; $cid <= $maxcid; ++$cid) {
+            // a code no content stream uses resolves to .notdef
+            $map .= \pack('n', $font['gidmap'][$cid] ?? 0);
+        }
+
+        $out = ++$this->pon . ' 0 obj' . "\n" . '<<';
+        if ($font['compress']) {
+            $out .= ' /Filter /FlateDecode';
+            $map = Zlib::compress($map, 'Unable to compress CIDToGIDMap');
+        }
+
+        $stream = $this->enc->encryptString($map, $this->pon);
+        return (
+            $out
+            . ' /Length '
+            . \strlen($stream)
+            . ' >>'
+            . ' stream'
+            . "\n"
+            . $stream
+            . "\n"
+            . 'endstream'
+            . "\n"
+            . 'endobj'
+            . "\n"
+        );
     }
 
     /**

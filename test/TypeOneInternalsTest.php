@@ -104,6 +104,7 @@ class TypeOneInternalsTest extends TestUtil
         'file_n' => 0,
         'file_name' => '',
         'gidenc' => false,
+        'gidmap' => [],
         'i' => 0,
         'ifile' => '',
         'indexToLoc' => [],

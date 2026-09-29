@@ -90,6 +90,29 @@ class Subset
     protected array $subglyphs = [];
 
     /**
+     * Glyph index each glyph takes in a compacted subset (original index => subset index).
+     *
+     * Empty when the subset keeps the original glyph indices.
+     *
+     * @var array<int, int>
+     */
+    protected array $gidmap = [];
+
+    /**
+     * Tables whose data is rebuilt by the subset rather than copied from the input font.
+     *
+     * @var array<string, bool>
+     */
+    protected array $rebuilt = ['glyf' => true, 'loca' => true];
+
+    /**
+     * Fields updated in place in the tables copied from the input font.
+     *
+     * @var array<string, array<int, string>> Table tag => [byte offset => replacement bytes]
+     */
+    protected array $patches = [];
+
+    /**
      * Subset font
      */
     protected string $subfont = '';
@@ -111,11 +134,20 @@ class Subset
      * @param TFontData        $fdt        Extracted font metrics
      * @param ObjFile          $fileHelper File helper for font loading.
      * @param array<int, bool> $subchars   Array containing subset chars
+     * @param ?array<int, int> $usedgids   Glyph indices used by the document (index => codepoint).
+     *                                     When given, the subset keeps these glyphs and their
+     *                                     components only, renumbered as getCompactGidMap()
+     *                                     describes, and $subchars is not used to select them.
      *
      * @throws FontException in case of error
      */
-    public function __construct(string $font, array $fdt, ObjFile $fileHelper, array $subchars = [])
-    {
+    public function __construct(
+        string $font,
+        array $fdt,
+        ObjFile $fileHelper,
+        array $subchars = [],
+        ?array $usedgids = null,
+    ) {
         $this->fileHelper = $fileHelper;
         $this->font = $font;
         $this->fbyte = new Byte($font);
@@ -139,9 +171,29 @@ class Subset
                 return;
             }
 
-            $this->subglyphs = $trueType->getSubGlyphs();
+            if ($usedgids === null) {
+                $this->subglyphs = $trueType->getSubGlyphs();
+            } else {
+                // a compacted subset keeps exactly the glyphs the content streams name
+                $this->gidmap = self::getCompactGidMap($usedgids);
+                foreach (\array_keys($this->gidmap) as $gid) {
+                    // an index the font does not define stays in the map as an empty glyph,
+                    // so the map remains the one computed from the used glyphs alone
+                    if ($gid >= $this->fdt['numGlyphs']) {
+                        continue;
+                    }
+
+                    $this->subglyphs[$gid] = true;
+                }
+            }
+
             $this->addCompositeGlyphs();
-            $this->addProcessedTables();
+            if ($this->gidmap === []) {
+                $this->addProcessedTables();
+            } else {
+                $this->addCompactTables();
+            }
+
             $this->removeUnusedTables();
             $this->buildSubsetFont();
         } catch (\RangeException $exc) {
@@ -156,6 +208,36 @@ class Subset
     public function getSubsetFont(): string
     {
         return $this->subfont;
+    }
+
+    /**
+     * Returns the glyph index each used glyph takes in a compacted subset.
+     *
+     * The .notdef glyph keeps index 0 and the used glyphs follow in ascending order of their
+     * original index. The map depends only on the set of used glyphs, so it is the same for a
+     * subset built now and for one a cache returns. The components of the composite glyphs are
+     * appended after them by the subset, and never appear in a content stream.
+     *
+     * @param array<int, mixed> $usedgids Glyph indices used by the document, as keys.
+     *
+     * @return array<int, int> Original glyph index => subset glyph index.
+     */
+    public static function getCompactGidMap(array $usedgids): array
+    {
+        $gids = \array_keys($usedgids);
+        \sort($gids);
+
+        $map = [0 => 0];
+        foreach ($gids as $gid) {
+            // .notdef is always the first glyph, and a glyph index is a 16-bit value
+            if ($gid < 1 || $gid > 0xFFFF) {
+                continue;
+            }
+
+            $map[$gid] = \count($map);
+        }
+
+        return $map;
     }
 
     /**
@@ -307,7 +389,7 @@ class Subset
                 continue;
             }
 
-            $isSubsetTable = $tag === 'loca' || $tag === 'glyf';
+            $isSubsetTable = isset($this->rebuilt[$tag]);
             if (!$isSubsetTable) {
                 $this->fdt['table'][$tag]['data'] = \substr(
                     $this->font,
@@ -328,6 +410,8 @@ class Subset
                         4,
                     );
                 }
+
+                $this->patchTable($tag);
 
                 // the checksum is computed from the bytes emitted, not copied from the
                 // directory of the input font
@@ -412,6 +496,194 @@ class Subset
             $this->fdt['table']['glyf']['data'],
             \strlen($this->fdt['table']['glyf']['data']),
         );
+    }
+
+    /**
+     * Apply the in-place field updates recorded for a table copied from the input font.
+     *
+     * @param string $tag Tag of the table to update.
+     *
+     * @throws FontException if a field lies past the end of the table.
+     */
+    protected function patchTable(string $tag): void
+    {
+        foreach ($this->patches[$tag] ?? [] as $pos => $bytes) {
+            if (($pos + \strlen($bytes)) > \strlen($this->fdt['table'][$tag]['data'])) {
+                throw new FontException('truncated font table: ' . $tag);
+            }
+
+            $this->fdt['table'][$tag]['data'] = \substr_replace(
+                $this->fdt['table'][$tag]['data'],
+                $bytes,
+                $pos,
+                \strlen($bytes),
+            );
+        }
+    }
+
+    /**
+     * Build the glyf, loca and hmtx tables of a compacted subset.
+     *
+     * The glyphs are written in the order of their subset index, with the components of the
+     * composite glyphs appended after the used glyphs and every component reference renumbered.
+     * The numGlyphs (maxp), numberOfHMetrics (hhea) and indexToLocFormat (head) fields are
+     * updated to describe the new tables.
+     *
+     * @throws FontException if a glyph or its metrics cannot be read.
+     */
+    protected function addCompactTables(): void
+    {
+        // addCompositeGlyphs() sorted the glyphs, so the components follow in ascending order
+        foreach (\array_keys($this->subglyphs) as $gid) {
+            $this->gidmap[$gid] ??= \count($this->gidmap);
+        }
+
+        $glyf = '';
+        $offsets = [];
+        $metrics = [];
+        // the map was filled in ascending order of subset index
+        foreach (\array_keys($this->gidmap) as $gid) {
+            $offsets[] = \strlen($glyf);
+            $data = $this->renumberComponents($this->getGlyphData($gid));
+            // a four byte alignment keeps every offset even, as the short loca format requires
+            $glyf .= $data . \str_repeat("\x0", (4 - (\strlen($data) % 4)) % 4);
+            $metrics[] = $this->getHorMetric($gid);
+        }
+
+        $offsets[] = \strlen($glyf);
+        $short = \strlen($glyf) <= self::MAX_SHORT_LOCA_OFFSET;
+        $loca = $short
+            ? \pack('n*', ...\array_map(static fn(int $offset): int => $offset >> 1, $offsets))
+            : \pack('N*', ...$offsets);
+
+        // a trailing run of glyphs sharing one advance width keeps only its left side bearings
+        $numGlyphs = \count($metrics);
+        $numHMetrics = $numGlyphs;
+        while ($numHMetrics > 1 && $metrics[$numHMetrics - 1][0] === $metrics[$numHMetrics - 2][0]) {
+            --$numHMetrics;
+        }
+
+        $hmtx = '';
+        foreach ($metrics as $idx => [$advance, $lsb]) {
+            $hmtx .= $idx < $numHMetrics ? \pack('nn', $advance, $lsb & 0xFFFF) : \pack('n', $lsb & 0xFFFF);
+        }
+
+        $this->setRebuiltTable('glyf', $glyf);
+        $this->setRebuiltTable('loca', $loca);
+        $this->setRebuiltTable('hmtx', $hmtx);
+        $this->patches = [
+            'head' => [50 => \pack('n', $short ? 0 : 1)], // indexToLocFormat
+            'hhea' => [34 => \pack('n', $numHMetrics)], // numberOfHMetrics
+            'maxp' => [4 => \pack('n', $numGlyphs)], // numGlyphs
+        ];
+    }
+
+    /**
+     * Store the data of a table rebuilt by the subset.
+     *
+     * @param string $tag  Tag of the table.
+     * @param string $data Table data, before padding.
+     */
+    protected function setRebuiltTable(string $tag, string $data): void
+    {
+        $this->rebuilt[$tag] = true;
+        $this->fdt['table'][$tag]['data'] = $data;
+        $this->fdt['table'][$tag]['length'] = \strlen($data);
+        $this->padTable($tag);
+        $this->fdt['table'][$tag]['checkSum'] = $this->getTableChecksum(
+            $this->fdt['table'][$tag]['data'],
+            \strlen($this->fdt['table'][$tag]['data']),
+        );
+    }
+
+    /**
+     * Returns the program of a glyph, or an empty string for an empty or missing glyph.
+     *
+     * @param int $gid Original glyph index.
+     */
+    protected function getGlyphData(int $gid): string
+    {
+        $nextidx = $this->getNextLocaIndex($gid + 1);
+        if (!isset($this->fdt['indexToLoc'][$gid]) || $nextidx === null) {
+            return '';
+        }
+
+        // a non-monotonic loca table would give a negative length
+        $length = \max(0, $this->fdt['indexToLoc'][$nextidx] - $this->fdt['indexToLoc'][$gid]);
+        return \substr($this->font, $this->fdt['table']['glyf']['offset'] + $this->fdt['indexToLoc'][$gid], $length);
+    }
+
+    /**
+     * Returns the advance width and left side bearing the hmtx table stores for a glyph.
+     *
+     * A glyph past the last longHorMetric record takes the advance width of that record, and
+     * a glyph index the font does not define is reported with zero metrics.
+     *
+     * @param int $gid Original glyph index.
+     *
+     * @return array{int, int} Advance width and left side bearing.
+     *
+     * @throws FontException if the hmtx table has no metrics for the glyph.
+     */
+    protected function getHorMetric(int $gid): array
+    {
+        if ($gid >= $this->fdt['numGlyphs']) {
+            return [0, 0];
+        }
+
+        $numHMetrics = $this->fdt['numHMetrics'];
+        $hmtx = $this->fdt['table']['hmtx'];
+        $advancePos = $hmtx['offset'] + (4 * \min($gid, $numHMetrics - 1));
+        $lsbPos = $gid < $numHMetrics
+            ? $advancePos + 2
+            : $hmtx['offset'] + (4 * $numHMetrics) + (2 * ($gid - $numHMetrics));
+        if (($lsbPos + 2) > ($hmtx['offset'] + $hmtx['length'])) {
+            throw new FontException('the hmtx table has no metrics for the glyph ' . $gid);
+        }
+
+        return [$this->fbyte->getUShort($advancePos), $this->fbyte->getShort($lsbPos)];
+    }
+
+    /**
+     * Renumber the component references of a composite glyph with the subset glyph indices.
+     *
+     * @param string $data Program of the glyph.
+     *
+     * @throws FontException if a component is not part of the subset.
+     */
+    protected function renumberComponents(string $data): string
+    {
+        $end = \strlen($data);
+        // a composite glyph has a negative numberOfContours
+        if ($end < 10 || (\ord($data[0]) & 0x80) === 0) {
+            return $data;
+        }
+
+        $pos = 10; // skip numberOfContours, xMin, yMin, xMax and yMax
+        do {
+            if (($pos + 4) > $end) {
+                break; // the component record does not fit the glyph
+            }
+
+            $flags = (\ord($data[$pos]) << 8) | \ord($data[$pos + 1]);
+            $gid = (\ord($data[$pos + 2]) << 8) | \ord($data[$pos + 3]);
+            if (!isset($this->gidmap[$gid])) {
+                throw new FontException('the component glyph ' . $gid . ' is not part of the subset');
+            }
+
+            $data = \substr_replace($data, \pack('n', $this->gidmap[$gid]), $pos + 2, 2);
+            // ARG_1_AND_2_ARE_WORDS (bit 0) selects 16-bit arguments
+            $pos += ($flags & 1) !== 0 ? 8 : 6;
+            if (($flags & 8) !== 0) {
+                $pos += 2; // WE_HAVE_A_SCALE (bit 3): one F2DOT14
+            } elseif (($flags & 64) !== 0) {
+                $pos += 4; // WE_HAVE_AN_X_AND_Y_SCALE (bit 6): two F2DOT14
+            } elseif (($flags & 128) !== 0) {
+                $pos += 8; // WE_HAVE_A_TWO_BY_TWO (bit 7): four F2DOT14
+            }
+        } while (($flags & 32) !== 0); // MORE_COMPONENTS (bit 5)
+
+        return $data;
     }
 
     /**
