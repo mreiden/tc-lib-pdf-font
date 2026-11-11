@@ -128,6 +128,7 @@ class OutputTest extends TestUtil
             'file_n' => 0,
             'file_name' => '',
             'gidenc' => false,
+            'gidmap' => [],
             'gw' => [],
             'i' => 0,
             'ifile' => '',
@@ -229,9 +230,10 @@ class OutputTest extends TestUtil
         $encrypt = $this->createEncrypt();
         $output = new \Com\Tecnick\Pdf\Font\Output($fonts, $objnum, $encrypt, null);
 
-        // The 4 TrueTypeUnicode fonts are GID encoded and use /CIDToGIDMap /Identity,
-        // so they emit no CIDToGIDMap stream object.
-        $this->assertEquals(33, $output->getObjectNumber());
+        // The 4 TrueTypeUnicode fonts are GID encoded. The 3 embedded whole use
+        // /CIDToGIDMap /Identity, while the subset one renumbers its glyphs and emits a
+        // CIDToGIDMap stream object.
+        $this->assertEquals(34, $output->getObjectNumber());
 
         $this->assertNotEmpty($output->getFontsBlock());
 

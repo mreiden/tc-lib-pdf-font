@@ -317,9 +317,11 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
             . $fontdw
             . "\n"
             . ($font['gidenc'] ? $this->getGidWidths($font) : $this->getCharWidths($font, 0));
-        // a GID encoded font maps its codes to themselves, except the alias codes
+        // a GID encoded font maps its codes to themselves, except the alias codes and the
+        // codes of a subset that renumbered its glyphs
+        $compactmap = $font['gidenc'] && $font['gidmap'] !== [];
         $aliasmap = $font['gidenc'] && $font['usedalias'] !== [];
-        $ctgobj = $aliasmap || $fontctg !== '' && !$font['gidenc'];
+        $ctgobj = $compactmap || $aliasmap || $fontctg !== '' && !$font['gidenc'];
         if ($ctgobj) {
             $out .= "\n" . '/CIDToGIDMap ' . ($this->pon + 2) . ' 0 R';
         } elseif ($font['gidenc']) {
@@ -349,7 +351,9 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
 
         $out .= ' >>' . "\n" . 'endobj' . "\n";
 
-        if ($aliasmap) {
+        if ($compactmap) {
+            $out .= $this->getCompactCIDToGIDMap($font);
+        } elseif ($aliasmap) {
             $out .= $this->getAliasCIDToGIDMap($font);
         } elseif ($ctgobj) {
             $out .= ++$this->pon . ' 0 obj' . "\n";
@@ -375,6 +379,50 @@ abstract class OutFont extends \Com\Tecnick\Pdf\Font\OutUtil
         }
 
         return $out;
+    }
+
+    /**
+     * Get the PDF output string for the CIDToGIDMap stream object of a GID encoded font
+     * whose subset renumbered its glyphs: every code maps to the index its glyph takes in
+     * the subset, and an alias code to the one of its glyph.
+     *
+     * The map ends at the largest code the font uses, and a code no content stream uses
+     * resolves to .notdef.
+     *
+     * @param TFontData $font Font to process
+     *
+     * @throws EncException
+     * @throws FontException
+     */
+    protected function getCompactCIDToGIDMap(array $font): string
+    {
+        $codes = \array_keys($font['usedgid']);
+        $maxcode = $codes === [] ? 0 : \max($codes);
+        $data = '';
+        for ($code = 0; $code <= $maxcode; ++$code) {
+            $data .= \pack('n', $font['gidmap'][$font['usedalias'][$code] ?? $code] ?? 0);
+        }
+
+        $out = ++$this->pon . ' 0 obj' . "\n" . '<<';
+        if ($font['compress']) {
+            $out .= ' /Filter /FlateDecode';
+            $data = Zlib::compress($data, 'Unable to compress CIDToGIDMap');
+        }
+
+        $stream = $this->enc->encryptString($data, $this->pon);
+        return (
+            $out
+            . ' /Length '
+            . \strlen($stream)
+            . ' >> stream'
+            . "\n"
+            . $stream
+            . "\n"
+            . 'endstream'
+            . "\n"
+            . 'endobj'
+            . "\n"
+        );
     }
 
     /**

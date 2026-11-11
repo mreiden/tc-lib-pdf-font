@@ -65,7 +65,7 @@ class CidSetStreamTest extends TestUtil
      * @throws EncException
      * @throws FontException
      */
-    protected function getOutput(array $fonts, bool $cidset): \Com\Tecnick\Pdf\Font\Output
+    protected function getOutput(array $fonts, bool $cidset, bool $compact = true): \Com\Tecnick\Pdf\Font\Output
     {
         return new \Com\Tecnick\Pdf\Font\Output(
             $fonts,
@@ -74,6 +74,7 @@ class CidSetStreamTest extends TestUtil
             null,
             null,
             $cidset,
+            $compact,
         );
     }
 
@@ -205,7 +206,8 @@ class CidSetStreamTest extends TestUtil
         $font = $stack->getFont($stack->getCurrentFontKey());
         $this->assertTrue($font['gidenc']);
 
-        $output = $this->getOutput($stack->getFonts(), true);
+        // the subset keeps the original glyph indices, so it has no CIDToGIDMap stream
+        $output = $this->getOutput($stack->getFonts(), true, false);
         $block = $output->getFontsBlock();
         $this->assertStringContainsString('/BaseFont /AAAAAB+', $block);
         $ref = $this->getCidSetRef($block);

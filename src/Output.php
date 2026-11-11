@@ -74,6 +74,23 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
     protected array $filesubset = [];
 
     /**
+     * True for each font file whose fonts are all GID encoded, keyed like $subchars.
+     *
+     * Only such a file can be subset with renumbered glyphs, as every font using it resolves
+     * its character codes through a CIDToGIDMap.
+     *
+     * @var array<string, bool>
+     */
+    protected array $filecompact = [];
+
+    /**
+     * Glyph index map of each font file subset with renumbered glyphs, keyed like $subchars.
+     *
+     * @var array<string, array<int, int>>
+     */
+    protected array $filegidmap = [];
+
+    /**
      * PDF string block with the fonts definitions
      */
     protected string $out = '';
@@ -88,6 +105,9 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
      * @param ?FontSubsetCacheInterface $subsetCache Optional cache for subset font programs.
      * @param bool                      $cidset      True to add a CIDSet stream to the descriptor of each
      *                                               subset CIDFont (PDF/A-1).
+     * @param bool                      $compactSubset Renumber the glyphs of a subset whose fonts are all
+     *                                                 GID encoded, so that the embedded program carries
+     *                                                 the glyphs shown by the document only.
      *
      * @throws FileException
      * @throws FontException
@@ -99,6 +119,7 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
         ?ObjFile $fileHelper = null,
         protected ?FontSubsetCacheInterface $subsetCache = null,
         bool $cidset = false,
+        protected bool $compactSubset = true,
     ) {
         $this->fileHelper = $fileHelper ?? new ObjFile(allowedPaths: FontPaths::buildAllowedPaths());
 
@@ -229,6 +250,8 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
                     $this->subgids[$file_key][$font['usedalias'][$code] ?? $code] = true;
                 }
 
+                $this->filecompact[$file_key] = ($this->filecompact[$file_key] ?? true) && $font['gidenc'];
+
                 if ($this->cidset && $font['type'] === 'TrueTypeUnicode') {
                     $this->addSubsetCids($file_key, $font);
                 }
@@ -300,18 +323,21 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
 
                     $subchars = $this->subchars[$dkey];
                     $subgids = $this->subgids[$dkey] ?? [];
+                    // the glyphs of a file whose fonts are all GID encoded can be renumbered,
+                    // as a CIDToGIDMap resolves the character codes of the content streams
+                    $compact = $this->compactSubset && ($this->filecompact[$dkey] ?? false);
                     // the cache key is derived only when a cache is configured,
                     // as it hashes the whole font program
                     $cache = $this->subsetCache;
                     $cacheKey = '';
                     $subsetFont = null;
                     if ($cache !== null) {
-                        $cacheKey = $this->subsetCacheKey($font_data, $font, $subchars, $subgids);
+                        $cacheKey = $this->subsetCacheKey($font_data, $font, $subchars, $subgids, $compact);
                         $subsetFont = $cache->get($cacheKey);
                     }
 
                     if ($subsetFont === null) {
-                        $sub = new Subset($font_data, $font, $this->fileHelper, $subchars, $subgids);
+                        $sub = new Subset($font_data, $font, $this->fileHelper, $subchars, $subgids, $compact);
                         $subsetFont = $sub->getSubsetFont();
                         $cache?->set($cacheKey, $subsetFont);
                     }
@@ -320,6 +346,9 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
                         // the program was returned untouched, so the complete font is
                         // embedded and is not marked as a subset
                         $this->filesubset[$dkey] = false;
+                    } elseif ($compact) {
+                        // derived from the glyph indices alone, so a cached program gets the same map
+                        $this->filegidmap[$dkey] = Subset::getCompactGidMap($subgids);
                     }
 
                     $font['length1'] = \strlen($subsetFont);
@@ -358,6 +387,7 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
             // the program is emitted once for every font backed by it, so the aggregated
             // decision is recorded
             $this->fonts[$fkey]['subset'] = $this->filesubset[$dkey];
+            $this->fonts[$fkey]['gidmap'] = $this->filegidmap[$dkey] ?? [];
         }
 
         return $out;
@@ -386,12 +416,22 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
      * used for cache addressing only.
      *
      * @param string           $font_data Uncompressed font program bytes.
+     * A subset with renumbered glyphs carries a trailing marker, so that its key
+     * never matches the one of a subset keeping the original glyph indices.
+     *
+     * @param string           $font_data Uncompressed font program bytes.
      * @param TFontData        $font      Extracted font metrics.
      * @param array<int, bool> $subchars  Subset characters (charcode => enabled).
      * @param array<int, bool> $subgids   Subset glyph indices (gid => enabled).
+     * @param bool             $compact   True for a subset with renumbered glyphs.
      */
-    protected function subsetCacheKey(string $font_data, array $font, array $subchars, array $subgids = []): string
-    {
+    protected function subsetCacheKey(
+        string $font_data,
+        array $font,
+        array $subchars,
+        array $subgids = [],
+        bool $compact = false,
+    ): string {
         \ksort($subchars);
         \ksort($subgids);
 
@@ -408,6 +448,7 @@ class Output extends \Com\Tecnick\Pdf\Font\OutFont
             . \hash('xxh128', \implode(',', \array_keys(\array_filter($subchars))))
             . ':'
             . \hash('xxh128', \implode(',', \array_keys(\array_filter($subgids))))
+            . ($compact ? ':compact' : '')
         );
     }
 

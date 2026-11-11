@@ -112,6 +112,7 @@ class CoreMetricsTest extends TestCase
         'file_n' => 0,
         'file_name' => '',
         'gidenc' => false,
+        'gidmap' => [],
         'gw' => [],
         'i' => 0,
         'ifile' => '',

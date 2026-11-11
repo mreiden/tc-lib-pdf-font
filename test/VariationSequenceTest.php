@@ -66,7 +66,8 @@ class VariationSequenceTest extends TestUtil
     }
 
     /**
-     * Returns the fonts block written with the CIDSet streams.
+     * Returns the fonts block written with the CIDSet streams, the subsets keeping the
+     * original glyph indices.
      *
      * @throws FileException
      * @throws FontException
@@ -82,6 +83,7 @@ class VariationSequenceTest extends TestUtil
             null,
             null,
             true,
+            false,
         );
         return $out->getFontsBlock();
     }
